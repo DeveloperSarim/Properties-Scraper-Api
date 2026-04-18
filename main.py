@@ -1498,4 +1498,4 @@ def cities():
 
 @app.get("/health")
 def health():
-    return {"status":"ok","platforms":len(ALL_SCRAPERS)}
+    return {"status":"ok","Version":"2.0","platforms":len(ALL_SCRAPERS)}
