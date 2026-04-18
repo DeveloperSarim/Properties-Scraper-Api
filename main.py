@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import random
 import re
 from typing import AsyncIterator, Optional
@@ -145,9 +146,28 @@ PROPERTY_IMAGES: dict[str, list[str]] = {
 }
 
 
+def _city_from_location(location: str) -> str:
+    """If location is 'District, City' format, return 'City'. Otherwise return location."""
+    if "," in location:
+        return location.split(",")[-1].strip()
+    return location
+
+
+def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Great-circle distance in kilometres between two lat/lng points."""
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlng = math.radians(lng2 - lng1)
+    a = (math.sin(dlat / 2) ** 2 +
+         math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlng / 2) ** 2)
+    return R * 2 * math.asin(math.sqrt(a))
+
+
 def _get_coords(location: str, offset: bool = True) -> tuple[float, float]:
-    key = location.strip().lower()
-    base = CITY_COORDS.get(key)
+    # Handle "District, City" format — try city first
+    city_part = _city_from_location(location).strip().lower()
+    key       = location.strip().lower()
+    base = CITY_COORDS.get(city_part) or CITY_COORDS.get(key)
     if not base:
         for k, v in CITY_COORDS.items():
             if k in key or key in k:
@@ -301,6 +321,19 @@ def _int(v) -> int:
 def _str(v, fb="N/A") -> str:
     s = str(v).strip() if v is not None else ""
     return s or fb
+
+def _clean_phone(raw) -> str:
+    """Normalize to Saudi local number (9 digits, no country code, no symbols)."""
+    if raw is None:
+        return ""
+    digits = re.sub(r'\D', '', str(raw))
+    if digits.startswith("00966"):
+        digits = digits[5:]
+    elif digits.startswith("966") and len(digits) > 9:
+        digits = digits[3:]
+    if digits.startswith("0") and len(digits) > 1:
+        digits = digits[1:]
+    return digits if 8 <= len(digits) <= 10 else ""
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Base scraper
@@ -509,12 +542,12 @@ class BayutScraper(BaseScraper):
         cover_id = cover.get("id") if isinstance(cover, dict) else None
         image_url = f"https://images.bayut.sa/thumbnails/{cover_id}-400x300.jpeg" if cover_id else ""
 
-        # Phone
+        # Phone — normalize to 9-digit local number
         ph = h.get("phoneNumber") or {}
         contact = ""
         if isinstance(ph, dict):
-            contact = _str(ph.get("mobile") or ph.get("phone") or
-                           (ph.get("phoneNumbers") or [None])[0], "")
+            raw_phone = ph.get("mobile") or ph.get("phone") or (ph.get("phoneNumbers") or [None])[0]
+            contact = _clean_phone(raw_phone)
 
         # Coordinates
         geo = h.get("geography") or h.get("_geoloc") or {}
@@ -553,7 +586,15 @@ class BayutScraper(BaseScraper):
         try:
             purpose    = "for-sale" if self.listing_type == "sale" else "for-rent"
             cat_slug   = self._CAT_SLUGS.get(self.property_type, "apartments")
-            city_slug  = self._CITY_SLUGS.get(self.location.strip().lower(), f"/{self.location.strip().lower().replace(' ','-')}")
+
+            # Handle "District, City" format
+            city_str   = _city_from_location(self.location).strip().lower()
+            city_slug  = self._CITY_SLUGS.get(city_str,
+                             f"/{city_str.replace(' ', '-')}")
+            # If a district was specified, use it as a text query for Algolia
+            district_q = ""
+            if "," in self.location:
+                district_q = self.location.split(",")[0].strip()
 
             filters = f"purpose:{purpose} AND category.slug_l1:{cat_slug}"
             if self.min_price: filters += f" AND price>={self.min_price}"
@@ -563,7 +604,7 @@ class BayutScraper(BaseScraper):
             results = []
             for page in range(2):          # fetch 2 pages = up to 40 listings
                 payload = {
-                    "query": "",
+                    "query": district_q,   # empty for city-only, district name for district search
                     "filters": filters,
                     "facetFilters": [[f"location.slug_l1:{city_slug}"]],
                     "hitsPerPage": 20,
@@ -678,8 +719,9 @@ class AqarScraper(BaseScraper):
 
     async def scrape(self, client: AsyncSession) -> list[dict]:
         try:
+            city_str  = _city_from_location(self.location).strip().lower()
             loc_lower = self.location.strip().lower()
-            city_ar   = self._CITIES.get(loc_lower, "الرياض")
+            city_ar   = self._CITIES.get(city_str, self._CITIES.get(loc_lower, "الرياض"))
             type_slug = self._SLUGS.get((self.property_type, self.listing_type), "عقارات")
             url       = f"{self.base_url}/{quote(type_slug, safe='')}/{quote(city_ar, safe='')}"
 
@@ -798,8 +840,9 @@ class PropertyFinderScraper(BaseScraper):
 
     async def scrape(self, client: AsyncSession) -> list[dict]:
         try:
+            city_str   = _city_from_location(self.location).strip().lower()
             loc_lower  = self.location.strip().lower()
-            city_slug  = self._CITIES.get(loc_lower, "ar-riyadh")
+            city_slug  = self._CITIES.get(city_str, self._CITIES.get(loc_lower, "ar-riyadh"))
             type_slug  = self._TYPES.get(self.property_type, "apartments")
             purpose    = "buy" if self.listing_type == "sale" else "rent"
             url = f"{self.base_url}/en/{purpose}/{city_slug}/{type_slug}-for-{purpose}.html"
@@ -855,14 +898,15 @@ class PropertyFinderScraper(BaseScraper):
                 area  = _int(sz.get("value") or 0)
 
                 # Phone — prefer "phone" type in contact_options, fallback to broker
-                phone = ""
+                raw_phone = ""
                 for co in (p.get("contact_options") or []):
                     if co.get("type") == "phone":
-                        phone = _str(co.get("value"), "")
+                        raw_phone = _str(co.get("value"), "")
                         break
-                if not phone:
+                if not raw_phone:
                     broker = p.get("broker") or {}
-                    phone  = _str(broker.get("phone"), "")
+                    raw_phone = _str(broker.get("phone"), "")
+                phone = _clean_phone(raw_phone)
 
                 # Source URL
                 source_url = _str(p.get("share_url"), url)
@@ -930,8 +974,10 @@ class WasaltScraper(BaseScraper):
 
     async def scrape(self, client: AsyncSession) -> list[dict]:
         try:
+            # Extract city from "District, City" format if needed
+            city_str  = _city_from_location(self.location).strip().lower()
             loc_lower = self.location.strip().lower()
-            city_slug = self._CITIES.get(loc_lower, loc_lower.replace(" ", "-"))
+            city_slug = self._CITIES.get(city_str, self._CITIES.get(loc_lower, city_str.replace(" ", "-")))
             type_slug = self._TYPES.get(self.property_type, "properties")
             purpose   = "sale" if self.listing_type == "sale" else "rent"
             url = f"{self.base_url}/en/{type_slug}-for-{purpose}-in-{city_slug}"
@@ -995,10 +1041,9 @@ class WasaltScraper(BaseScraper):
                 imgs = files.get("images") if isinstance(files, dict) else []
                 image_url = f"{self._IMG_CDN}/{prop_id}/images/{imgs[0]}/public" if imgs else ""
 
-                # Phone
-                phone = _str(owner.get("phone") or owner.get("whatsApp"), "")
-                if phone and not phone.startswith("+") and not phone.startswith("966"):
-                    phone = phone  # keep as-is, already stripped
+                # Phone — normalize to 9-digit local number
+                phone = _clean_phone(owner.get("phone") or owner.get("whatsApp") or
+                                     (p.get("contactDetails") or {}).get("phoneNumber"))
 
                 # Source URL — format: /en/property/{slug} or /en/property/{id}
                 slug = _str(pi.get("slug"), "")
@@ -1066,9 +1111,12 @@ class HarajScraper(BaseScraper):
 
     async def scrape(self, client):
         try:
+            city_str = _city_from_location(self.location).strip().lower()
             city_ar = {"riyadh":"الرياض","jeddah":"جدة","dammam":"الدمام",
-                       "mecca":"مكة","medina":"المدينة","khobar":"الخبر"}.get(
-                           self.location.lower(), self.location)
+                       "mecca":"مكة","medina":"المدينة","khobar":"الخبر",
+                       "abha":"أبها","tabuk":"تبوك","hail":"حائل",
+                       "buraidah":"بريدة","medina":"المدينة المنورة"}.get(
+                           city_str, city_str)
             prop_ar = {"apartment":"شقة","villa":"فيلا","house":"منزل",
                        "land":"أرض","office":"مكتب"}.get(self.property_type,"عقار")
             q = f"{prop_ar} {city_ar}"
@@ -1118,7 +1166,8 @@ class OpenSooqScraper(BaseScraper):
             prop_slug = {"apartment":"apartments-for-sale","villa":"villas",
                          "house":"houses","land":"land","office":"offices"}.get(
                              self.property_type,"real-estate")
-            url = f"{self.base_url}/en/{prop_slug}/{self.location.lower().replace(' ','-')}"
+            city_slug = _city_from_location(self.location).strip().lower().replace(' ','-')
+            url = f"{self.base_url}/en/{prop_slug}/{city_slug}"
             r = await client.get(url, headers=_h(self.base_url), timeout=15)
             if r.status_code==200:
                 soup = BeautifulSoup(r.text,"lxml")
@@ -1146,9 +1195,17 @@ class ExpatriatesScraper(BaseScraper):
     base_url = "https://www.expatriates.com"
     mock_count = 6
 
+    _CITIES = {
+        "riyadh": "riyadh", "jeddah": "jeddah", "dammam": "dammam",
+        "mecca": "mecca", "medina": "medina", "khobar": "al-khobar",
+        "al khobar": "al-khobar", "abha": "abha", "tabuk": "tabuk",
+    }
+
     async def scrape(self, client):
         try:
-            url = f"{self.base_url}/classifieds/saudi-arabia/real-estate/"
+            city_str = _city_from_location(self.location).strip().lower()
+            city_slug = self._CITIES.get(city_str, city_str.replace(" ", "-"))
+            url = f"{self.base_url}/classifieds/saudi-arabia/{city_slug}/real-estate/"
             r = await client.get(url, headers=_h(self.base_url), timeout=15)
             if r.status_code==200:
                 soup = BeautifulSoup(r.text,"lxml")
@@ -1188,7 +1245,8 @@ class MourjanScraper(BaseScraper):
     async def scrape(self, client):
         try:
             ltype = "for-sale" if self.listing_type=="sale" else "for-rent"
-            url = f"{self.base_url}/classifieds/real-estate/{ltype}/{self.location.lower().replace(' ','-')}"
+            city_slug = _city_from_location(self.location).strip().lower().replace(' ', '-')
+            url = f"{self.base_url}/classifieds/real-estate/{ltype}/{city_slug}"
             r = await client.get(url, headers=_h(self.base_url), timeout=15)
             if r.status_code==200:
                 found = self._extract_next_data(r.text)
@@ -1369,6 +1427,24 @@ async def stream(
     platform_list = [p.strip() for p in platforms.split(",")] if platforms else None
     scrapers = _build_scrapers(platform_list, kw)
 
+    # When a specific district is requested ("District, City"), filter all
+    # results to within DISTRICT_RADIUS_KM of the district centroid.
+    # Centroid is established from the first scraper that returns coords
+    # (Bayut runs first and uses Algolia district filtering, so its centroid
+    # is accurate). Subsequent scrapers' city-wide results are then clipped.
+    DISTRICT_RADIUS_KM = 10.0
+    is_district = "," in location
+    centroid: list[float] = []   # [lat, lng] once established
+
+    def _in_district(item: dict) -> bool:
+        """True if listing is within DISTRICT_RADIUS_KM of established centroid."""
+        if not centroid:
+            return True  # centroid not yet set — let it through
+        lat, lng = item.get("lat"), item.get("lng")
+        if not lat or not lng:
+            return False
+        return _haversine_km(centroid[0], centroid[1], lat, lng) <= DISTRICT_RADIUS_KM
+
     async def gen() -> AsyncIterator[str]:
         async with AsyncSession(impersonate="chrome124") as client:
             for sc in scrapers:
@@ -1376,6 +1452,20 @@ async def stream(
                             "message":f"Scanning {sc.platform_name}…"})
                 try:
                     results = await sc.scrape(client)
+
+                    if is_district and results:
+                        # Establish centroid from first batch of real GPS coords
+                        if not centroid:
+                            lats = [r["lat"] for r in results if r.get("lat") and r.get("lng")]
+                            lngs = [r["lng"] for r in results if r.get("lat") and r.get("lng")]
+                            if lats:
+                                centroid.append(sum(lats) / len(lats))
+                                centroid.append(sum(lngs) / len(lngs))
+
+                        # Filter to district radius (skip if centroid still unknown)
+                        if centroid:
+                            results = [r for r in results if _in_district(r)]
+
                     for item in results:
                         yield _sse({"status":"result","listing":item})
                     yield _sse({"status":"platform_done","platform":sc.platform_name,"count":len(results)})
