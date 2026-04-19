@@ -542,12 +542,24 @@ class BayutScraper(BaseScraper):
         cover_id = cover.get("id") if isinstance(cover, dict) else None
         image_url = f"https://images.bayut.sa/thumbnails/{cover_id}-400x300.jpeg" if cover_id else ""
 
-        # Phone — normalize to 9-digit local number
+        # Phone + broker info
         ph = h.get("phoneNumber") or {}
         contact = ""
         if isinstance(ph, dict):
             raw_phone = ph.get("mobile") or ph.get("phone") or (ph.get("phoneNumbers") or [None])[0]
             contact = _clean_phone(raw_phone)
+
+        # Agent/broker profile info
+        agent_obj  = h.get("agent") or h.get("agency") or {}
+        agency_obj = h.get("agency") or {}
+        broker_name  = _str((agent_obj.get("name") if isinstance(agent_obj, dict) else ""), "")
+        broker_agency = _str((agency_obj.get("name") if isinstance(agency_obj, dict) else
+                              agent_obj.get("name") if isinstance(agent_obj, dict) else ""), "")
+        broker_photo = _str((agent_obj.get("photo") or agent_obj.get("profilePhoto") or
+                             agent_obj.get("logoUrl") if isinstance(agent_obj, dict) else ""), "")
+        agent_id     = _str(agent_obj.get("externalID") or agent_obj.get("id") or
+                            agent_obj.get("slug") if isinstance(agent_obj, dict) else "", "")
+        broker_url   = f"{self.base_url}/en/agents/{agent_id}/" if agent_id else ""
 
         # Coordinates
         geo = h.get("geography") or h.get("_geoloc") or {}
@@ -580,6 +592,11 @@ class BayutScraper(BaseScraper):
             "source_platform_name": self.platform_name,
             "image_url": image_url,
             "lat": lat, "lng": lng,
+            # Broker fields (used by /api/brokers)
+            "broker_name":    broker_name,
+            "broker_agency":  broker_agency,
+            "broker_photo":   broker_photo,
+            "broker_url":     broker_url,
         }
 
     async def scrape(self, client: AsyncSession) -> list[dict]:
@@ -897,16 +914,30 @@ class PropertyFinderScraper(BaseScraper):
                 sz    = p.get("size") or {}
                 area  = _int(sz.get("value") or 0)
 
-                # Phone — prefer "phone" type in contact_options, fallback to broker
-                raw_phone = ""
+                # Phone — prefer "phone" type in contact_options, fallback to broker.phone
+                raw_phone  = ""
+                agent_obj  = p.get("agent")  or {}
+                broker_obj = p.get("broker") or {}
                 for co in (p.get("contact_options") or []):
                     if co.get("type") == "phone":
                         raw_phone = _str(co.get("value"), "")
                         break
                 if not raw_phone:
-                    broker = p.get("broker") or {}
-                    raw_phone = _str(broker.get("phone"), "")
+                    raw_phone = _str(broker_obj.get("phone"), "")
                 phone = _clean_phone(raw_phone)
+
+                # Broker profile info — agent has photo/slug, broker has agency name
+                broker_name   = _str(agent_obj.get("name") or broker_obj.get("name"), "")
+                broker_agency = _str(broker_obj.get("name") or
+                                    (broker_obj.get("agency") or {}).get("name"), "")
+                broker_photo  = _str(agent_obj.get("image"), "")
+                agent_id      = _str(agent_obj.get("id"), "")
+                agent_uid     = _str(agent_obj.get("user_id"), "")
+                broker_slug   = _str(agent_obj.get("slug"), "")
+                if broker_slug and agent_id and agent_uid:
+                    broker_url = f"https://www.propertyfinder.sa/en/broker/{broker_slug}-{agent_id}-{agent_uid}"
+                else:
+                    broker_url = ""
 
                 # Source URL
                 source_url = _str(p.get("share_url"), url)
@@ -933,6 +964,10 @@ class PropertyFinderScraper(BaseScraper):
                     "source_platform_name": self.platform_name,
                     "image_url":            image_url,
                     "lat": lat, "lng": lng,
+                    "broker_name":    broker_name,
+                    "broker_agency":  broker_agency,
+                    "broker_photo":   broker_photo,
+                    "broker_url":     broker_url,
                 })
 
             print(f"[PropertyFinder] {len(results)} listings from {url}")
@@ -1045,6 +1080,18 @@ class WasaltScraper(BaseScraper):
                 phone = _clean_phone(owner.get("phone") or owner.get("whatsApp") or
                                      (p.get("contactDetails") or {}).get("phoneNumber"))
 
+                # Broker profile info (owner object)
+                broker_name   = _str(owner.get("enName") or owner.get("name") or owner.get("fullName"), "")
+                broker_agency = _str(owner.get("companyName") or
+                                    (owner.get("company") or {}).get("name") or
+                                     owner.get("agencyName"), "")
+                raw_avatar    = owner.get("userAvatar") or owner.get("companyLogo") or ""
+                broker_photo  = (f"https://images.wasalt.sa/{raw_avatar}"
+                                 if raw_avatar and not raw_avatar.startswith("http") and "null" not in raw_avatar
+                                 else _str(raw_avatar if raw_avatar and "null" not in str(raw_avatar) else "", ""))
+                owner_id      = _str(owner.get("userId") or owner.get("slug") or owner.get("id"), "")
+                broker_url    = (f"{self.base_url}/en/user/{owner_id}" if owner_id else "")
+
                 # Source URL — format: /en/property/{slug} or /en/property/{id}
                 slug = _str(pi.get("slug"), "")
                 source_url = (f"{self.base_url}/en/property/{slug}" if slug
@@ -1071,6 +1118,10 @@ class WasaltScraper(BaseScraper):
                     "source_platform_name": self.platform_name,
                     "image_url":            image_url,
                     "lat": lat, "lng": lng,
+                    "broker_name":    broker_name,
+                    "broker_agency":  broker_agency,
+                    "broker_photo":   broker_photo,
+                    "broker_url":     broker_url,
                 })
 
             print(f"[Wasalt] {len(results)} listings from {url}")
@@ -1342,6 +1393,213 @@ class DealScraper(BaseScraper):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Broker / Agent directory scrapers
+# ─────────────────────────────────────────────────────────────────────────────
+
+_BAYUT_AGENT_SLUGS = {
+    "riyadh": "riyadh", "jeddah": "jeddah", "mecca": "mecca",
+    "medina": "medina", "dammam": "dammam", "al khobar": "al-khobar",
+    "khobar": "al-khobar", "abha": "abha", "tabuk": "tabuk",
+    "buraidah": "buraidah", "hail": "hail", "yanbu": "yanbu",
+    "najran": "najran", "jazan": "jazan",
+}
+
+def _parse_bayut_agents_page(text: str) -> tuple[list[dict], int]:
+    """Parse window.state from a Bayut agents page. Returns (agents, nbPages)."""
+    scripts = re.findall(r"<script[^>]*>(.*?)</script>", text, re.S)
+    for s in scripts:
+        if "window.state" not in s or "agentsCount" not in s:
+            continue
+        try:
+            start = s.index("window.state = ") + len("window.state = ")
+            depth, end = 0, start
+            for i, c in enumerate(s[start:], start):
+                if c == "{": depth += 1
+                elif c == "}":
+                    depth -= 1
+                    if depth == 0: end = i + 1; break
+            data = json.loads(s[start:end])
+            content = data.get("algolia", {}).get("content", {})
+            hits = content.get("hits", [])
+            nb_pages = content.get("nbPages", 1)
+            agents = []
+            for a in hits:
+                ph_obj = a.get("phoneNumber") or {}
+                raw_phone = (ph_obj.get("mobile") or
+                             (ph_obj.get("mobileNumbers") or [""])[0] or
+                             ph_obj.get("phone") or "")
+                phone = _clean_phone(_str(raw_phone, ""))
+                if not phone:
+                    continue
+                logo = (a.get("logo") or {}).get("url", "")
+                slug = _str(a.get("slug") or a.get("externalID") or "", "")
+                profile_url = f"https://www.bayut.sa/en/agents/{slug}/" if slug else ""
+                listing_count = _int(
+                    (a.get("stats") or {}).get("adsCount") or
+                    a.get("listingsCount") or a.get("agentsCount") or 0
+                )
+                area = _str(a.get("location"), "")
+                agents.append({
+                    "name":          _str(a.get("name") or a.get("fullName"), ""),
+                    "agency":        "",
+                    "photo_url":     logo,
+                    "phone":         phone,
+                    "platforms":     ["Bayut"],
+                    "listing_count": listing_count,
+                    "areas":         [area] if area else [],
+                    "profile_url":   profile_url,
+                    "_location":     area.lower(),  # used for city filter, stripped before output
+                })
+            return agents, nb_pages
+        except Exception:
+            pass
+    return [], 1
+
+
+async def _scrape_bayut_agents(client: AsyncSession, city_str: str) -> list[dict]:
+    slug = _BAYUT_AGENT_SLUGS.get(city_str, city_str.replace(" ", "-"))
+    base_url = f"https://www.bayut.sa/en/agents/{slug}/"
+    headers = {
+        "Accept": "text/html,application/xhtml+xml,*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.bayut.sa/",
+    }
+    try:
+        r = await client.get(base_url, headers=headers, timeout=20)
+        if r.status_code != 200:
+            return []
+        agents, nb_pages = _parse_bayut_agents_page(r.text)
+        # Fetch up to 4 pages (48 agents max to stay fast)
+        for page in range(1, min(nb_pages, 4)):
+            r2 = await client.get(f"{base_url}?page={page+1}", headers=headers, timeout=20)
+            if r2.status_code != 200:
+                break
+            more, _ = _parse_bayut_agents_page(r2.text)
+            agents.extend(more)
+        # Filter to agents whose primary location matches the requested city
+        if city_str:
+            agents = [a for a in agents if city_str in a.get("_location", "")]
+        # Strip internal filter field before returning
+        for a in agents:
+            a.pop("_location", None)
+        print(f"[BayutAgents] {len(agents)} from {base_url}")
+        return agents
+    except Exception as e:
+        print(f"[BayutAgents] error: {e}")
+        return []
+
+
+_PF_AGENT_REGIONS = {
+    "riyadh": "ar-riyadh", "jeddah": "makkah-al-mukarramah",
+    "mecca": "makkah-al-mukarramah", "medina": "al-madinah-al-munawwarah",
+    "dammam": "eastern", "khobar": "eastern", "al khobar": "eastern",
+    "abha": "asir", "tabuk": "tabuk",
+}
+
+async def _scrape_pf_agents(client: AsyncSession, city_str: str) -> list[dict]:
+    # Use find-broker directory — search by city name for best results
+    city_label = city_str.title() if city_str else "Saudi Arabia"
+    url = f"https://www.propertyfinder.sa/en/find-broker/search?q={city_label}"
+    try:
+        r = await client.get(url, headers={
+            "Accept": "text/html,application/xhtml+xml,*/*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Referer": "https://www.propertyfinder.sa/",
+        }, timeout=20)
+        if r.status_code != 200:
+            return []
+        m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', r.text, re.S)
+        if not m:
+            return []
+        data = json.loads(m.group(1))
+        pp   = data.get("props", {}).get("pageProps", {})
+        raw  = pp.get("brokers", {}).get("data", [])
+        results = []
+        for b in raw:
+            phone = _clean_phone(_str(b.get("phone"), ""))
+            if not phone:
+                continue
+            url_slug   = _str(b.get("urlSlug"), "")
+            client_id  = _str(b.get("clientId") or b.get("id"), "")
+            profile_url = (f"https://www.propertyfinder.sa/en/broker/{url_slug}-{client_id}"
+                           if url_slug and client_id else "")
+            logo = (b.get("logo") or {}).get("url", "") if isinstance(b.get("logo"), dict) else _str(b.get("logo"), "")
+            listing_count = _int(
+                b.get("totalProperties") or
+                b.get("propertiesResidentialForSaleCount", 0) + b.get("propertiesResidentialForRentCount", 0)
+            )
+            results.append({
+                "name":          _str(b.get("name"), ""),
+                "agency":        _str(b.get("name"), ""),
+                "photo_url":     logo,
+                "phone":         phone,
+                "platforms":     ["PropertyFinder"],
+                "listing_count": listing_count,
+                "areas":         [_str(b.get("location"), "")] if b.get("location") else [],
+                "profile_url":   profile_url,
+            })
+        print(f"[PFAgents] {len(results)} from {url}")
+        return results
+    except Exception as e:
+        print(f"[PFAgents] error: {e}")
+        return []
+
+
+_WASALT_AGENT_CITIES = {
+    "riyadh": "riyadh", "jeddah": "jeddah", "mecca": "makkah",
+    "medina": "madinah", "dammam": "dammam", "khobar": "al-khobar",
+    "al khobar": "al-khobar", "abha": "abha", "tabuk": "tabuk",
+}
+
+async def _scrape_wasalt_agents(client: AsyncSession, city_str: str) -> list[dict]:
+    city_slug = _WASALT_AGENT_CITIES.get(city_str, city_str.replace(" ", "-"))
+    url = f"https://wasalt.sa/en/agents?city={city_slug}"
+    try:
+        async with AsyncSession(impersonate="safari15_3") as safari:
+            r = await safari.get(url, headers={
+                "Accept": "text/html,application/xhtml+xml,*/*",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Referer": "https://wasalt.sa/",
+            }, timeout=20)
+        if r.status_code != 200:
+            return []
+        m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', r.text, re.S)
+        if not m:
+            return []
+        data = json.loads(m.group(1))
+        pp = data.get("props", {}).get("pageProps", {})
+        agents_raw = (pp.get("agents", {}).get("data") or
+                      pp.get("agentsList") or
+                      pp.get("agents") or [])
+        results = []
+        for a in agents_raw:
+            phone = _clean_phone(_str(a.get("phone") or a.get("mobile") or a.get("whatsApp"), ""))
+            if not phone:
+                continue
+            company_obj = a.get("company") or a.get("agency") or {}
+            agency = _str(company_obj.get("name") if isinstance(company_obj, dict) else company_obj, "")
+            photo = _str(a.get("photo") or a.get("avatar") or a.get("profilePhoto") or
+                        (a.get("image") or {}).get("url",""), "")
+            slug = _str(a.get("slug") or a.get("id"), "")
+            profile_url = (f"https://wasalt.sa/en/agents/{slug}" if slug else "")
+            results.append({
+                "name":          _str(a.get("name") or a.get("fullName"), ""),
+                "agency":        agency,
+                "photo_url":     photo,
+                "phone":         phone,
+                "platforms":     ["Wasalt"],
+                "listing_count": _int(a.get("listingsCount") or a.get("propertiesCount") or 0),
+                "areas":         [],
+                "profile_url":   profile_url,
+            })
+        print(f"[WasaltAgents] {len(results)} from {url}")
+        return results
+    except Exception as e:
+        print(f"[WasaltAgents] error: {e}")
+        return []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Platform registry
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -1498,4 +1756,103 @@ def cities():
 
 @app.get("/health")
 def health():
-    return {"status":"ok","Version":"2.0","platforms":len(ALL_SCRAPERS)}
+    return {"status":"ok","Version":"3.0.0","platforms":len(ALL_SCRAPERS)}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Broker aggregation endpoint
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/api/brokers")
+async def brokers_stream(
+    location:  str           = Query(...),
+    platforms: Optional[str] = Query(None),
+):
+    raw_city = _city_from_location(location).strip().lower()
+    # "saudi arabia" means no city filter — show all
+    city_str = "" if raw_city in ("saudi arabia", "ksa", "") else raw_city
+
+    async def gen() -> AsyncIterator[str]:
+        broker_map: dict[str, dict] = {}
+
+        def _merge(phone: str, data: dict):
+            if phone not in broker_map:
+                broker_map[phone] = {
+                    "name": "", "agency": "", "photo_url": "",
+                    "phone": phone, "platforms": [], "listing_count": 0,
+                    "areas": [], "profile_url": "",
+                }
+            b = broker_map[phone]
+            if data.get("name")        and not b["name"]:        b["name"]        = data["name"]
+            if data.get("agency")      and not b["agency"]:      b["agency"]      = data["agency"]
+            if data.get("photo_url")   and not b["photo_url"]:   b["photo_url"]   = data["photo_url"]
+            if data.get("profile_url") and not b["profile_url"]: b["profile_url"] = data["profile_url"]
+            for p in data.get("platforms", []):
+                if p not in b["platforms"]: b["platforms"].append(p)
+            b["listing_count"] += data.get("listing_count", 0)
+            for area in data.get("areas", []):
+                if area and area not in b["areas"]: b["areas"].append(area)
+
+        listing_location = location if city_str else "Riyadh"
+        kw = dict(location=listing_location, min_price=None, max_price=None,
+                  rooms=None, property_type="apartment", listing_type="rent")
+        listing_scrapers = {
+            "wasalt": WasaltScraper,
+            "aqar":   AqarScraper,
+        }
+
+        async with AsyncSession(impersonate="chrome124") as client:
+
+            # ── Broker directories (Bayut + PropertyFinder) ───────────────────
+            for dir_fn, dir_label in [
+                (_scrape_bayut_agents, "Bayut"),
+                (_scrape_pf_agents,    "PropertyFinder"),
+            ]:
+                yield _sse({"status": "scanning", "platform": dir_label,
+                            "message": f"Scanning {dir_label} broker directory…"})
+                try:
+                    agents = await dir_fn(client, city_str)
+                    for agent in agents:
+                        phone = agent.get("phone", "")
+                        if phone:
+                            _merge(phone, agent)
+                    yield _sse({"status": "platform_done",
+                                "platform": dir_label, "count": len(agents)})
+                except Exception as ex:
+                    yield _sse({"status": "error", "platform": dir_label, "message": str(ex)})
+
+            # ── Extract brokers from Wasalt + Aqar listings ───────────────────
+            for key, ScraperClass in listing_scrapers.items():
+                label = ScraperClass.__name__.replace("Scraper", "")
+                yield _sse({"status": "scanning", "platform": label,
+                            "message": f"Finding {label} brokers…"})
+                try:
+                    sc = ScraperClass(**kw)
+                    listings = await sc.scrape(client)
+                    count = 0
+                    for listing in listings:
+                        phone = _clean_phone(_str(listing.get("contact_number", ""), ""))
+                        if not phone:
+                            continue
+                        _merge(phone, {
+                            "name":          listing.get("broker_name", ""),
+                            "agency":        listing.get("broker_agency", ""),
+                            "photo_url":     listing.get("broker_photo", ""),
+                            "profile_url":   listing.get("broker_url", ""),
+                            "platforms":     [label],
+                            "listing_count": 1,
+                            "areas":         [listing.get("location_detail", "")],
+                        })
+                        count += 1
+                    yield _sse({"status": "platform_done", "platform": label, "count": count})
+                except Exception as ex:
+                    yield _sse({"status": "error", "platform": label, "message": str(ex)})
+
+            # ── stream results sorted by listing count desc ───────────────────
+            for broker in sorted(broker_map.values(), key=lambda b: -b["listing_count"]):
+                yield _sse({"status": "broker", "broker": broker})
+
+        yield _sse({"status": "complete"})
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
