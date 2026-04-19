@@ -675,15 +675,18 @@ class AqarScraper(BaseScraper):
 
     # URL path segment: (property_type, listing_type) → Arabic slug
     _SLUGS: dict[tuple[str,str], str] = {
-        ("apartment", "rent"): "شقق-للإيجار",
-        ("apartment", "sale"): "شقق-للبيع",
-        ("villa",     "rent"): "فلل-للإيجار",
-        ("villa",     "sale"): "فلل-للبيع",
-        ("house",     "rent"): "منازل-للإيجار",
-        ("house",     "sale"): "منازل-للبيع",
-        ("land",      "sale"): "أراضي-للبيع",
-        ("office",    "rent"): "مكاتب-للإيجار",
-        ("office",    "sale"): "مكاتب-للبيع",
+        ("apartment",  "rent"): "شقق-للإيجار",
+        ("apartment",  "sale"): "شقق-للبيع",
+        ("villa",      "rent"): "فلل-للإيجار",
+        ("villa",      "sale"): "فلل-للبيع",
+        ("house",      "rent"): "منازل-للإيجار",
+        ("house",      "sale"): "منازل-للبيع",
+        ("land",       "sale"): "أراضي-للبيع",
+        ("land",       "rent"): "أراضي-للإيجار",
+        ("office",     "rent"): "مكاتب-للإيجار",
+        ("office",     "sale"): "مكاتب-للبيع",
+        ("commercial", "rent"): "محلات-للإيجار",
+        ("commercial", "sale"): "محلات-للبيع",
     }
     _CITIES: dict[str, str] = {
         "riyadh":    "الرياض",
@@ -739,7 +742,10 @@ class AqarScraper(BaseScraper):
             city_str  = _city_from_location(self.location).strip().lower()
             loc_lower = self.location.strip().lower()
             city_ar   = self._CITIES.get(city_str, self._CITIES.get(loc_lower, "الرياض"))
-            type_slug = self._SLUGS.get((self.property_type, self.listing_type), "عقارات")
+            type_slug = self._SLUGS.get((self.property_type, self.listing_type))
+            if not type_slug:
+                print(f"[Aqar] no slug for ({self.property_type}, {self.listing_type}) — skipping")
+                return []
             url       = f"{self.base_url}/{quote(type_slug, safe='')}/{quote(city_ar, safe='')}"
 
             r = await client.get(
@@ -1680,10 +1686,28 @@ async def stream(
     listing_type:  str            = Query("sale"),
     platforms:     Optional[str]  = Query(None),
 ):
-    kw = dict(location=location, min_price=min_price, max_price=max_price,
-              rooms=rooms, property_type=property_type, listing_type=listing_type)
+    # Support comma-separated property types (multi-select)
+    property_types = [t.strip() for t in property_type.split(",") if t.strip()] or ["apartment"]
+
+    # 5% price buffer — expand range slightly so users see near-match properties
+    PRICE_BUFFER = 0.05
+    buf_min = int(min_price * (1 - PRICE_BUFFER)) if min_price else None
+    buf_max = int(max_price * (1 + PRICE_BUFFER)) if max_price else None
+
     platform_list = [p.strip() for p in platforms.split(",")] if platforms else None
-    scrapers = _build_scrapers(platform_list, kw)
+
+    # Build one set of scrapers per property type, deduplicate by source_url
+    scrapers: list[BaseScraper] = []
+    seen_classes: set = set()
+    for pt in property_types:
+        kw = dict(location=location, min_price=buf_min, max_price=buf_max,
+                  rooms=rooms, property_type=pt, listing_type=listing_type)
+        for sc in _build_scrapers(platform_list, kw):
+            # Use (class, property_type) as key to avoid duplicates when platform_list is identical
+            key = (type(sc).__name__, pt)
+            if key not in seen_classes:
+                seen_classes.add(key)
+                scrapers.append(sc)
 
     # When a specific district is requested ("District, City"), filter all
     # results to within DISTRICT_RADIUS_KM of the district centroid.
@@ -1704,6 +1728,8 @@ async def stream(
         return _haversine_km(centroid[0], centroid[1], lat, lng) <= DISTRICT_RADIUS_KM
 
     async def gen() -> AsyncIterator[str]:
+        seen_urls: set[str] = set()  # deduplicate across property types
+
         async with AsyncSession(impersonate="chrome124") as client:
             for sc in scrapers:
                 yield _sse({"status":"scanning","platform":sc.platform_name,
@@ -1712,21 +1738,28 @@ async def stream(
                     results = await sc.scrape(client)
 
                     if is_district and results:
-                        # Establish centroid from first batch of real GPS coords
                         if not centroid:
                             lats = [r["lat"] for r in results if r.get("lat") and r.get("lng")]
                             lngs = [r["lng"] for r in results if r.get("lat") and r.get("lng")]
                             if lats:
                                 centroid.append(sum(lats) / len(lats))
                                 centroid.append(sum(lngs) / len(lngs))
-
-                        # Filter to district radius (skip if centroid still unknown)
                         if centroid:
                             results = [r for r in results if _in_district(r)]
 
+                    # Deduplicate by source_url across property type runs
+                    unique = []
                     for item in results:
+                        url_key = item.get("source_url", "")
+                        if url_key and url_key in seen_urls:
+                            continue
+                        if url_key:
+                            seen_urls.add(url_key)
+                        unique.append(item)
+
+                    for item in unique:
                         yield _sse({"status":"result","listing":item})
-                    yield _sse({"status":"platform_done","platform":sc.platform_name,"count":len(results)})
+                    yield _sse({"status":"platform_done","platform":sc.platform_name,"count":len(unique)})
                 except Exception as ex:
                     yield _sse({"status":"error","platform":sc.platform_name,"message":str(ex)})
         yield _sse({"status":"complete"})
@@ -1756,7 +1789,7 @@ def cities():
 
 @app.get("/health")
 def health():
-    return {"status":"ok","Version":"3.0.0","platforms":len(ALL_SCRAPERS)}
+    return {"status":"ok","Version":"4.0","Environment":"Production","platforms":len(ALL_SCRAPERS)}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
