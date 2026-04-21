@@ -55,16 +55,18 @@ Designed for developers and real estate professionals, this API provides real-ti
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| **Multi-Platform Scraping** | Aggregate from 13+ real estate platforms | ✅ Active |
+| **Modular Architecture** | Clean separation of concerns with router-based design | ✅ Optimized |
+| **Multi-Platform Scraping** | Platform-specific scrapers for 13+ real estate sites | ✅ Active |
+| **Property Search API** | Comprehensive property search with filters | ✅ Implemented |
+| **Broker/Agent API** | Search and list real estate agents with SSE | ✅ Active |
+| **Real-time Streaming** | SSE (Server-Sent Events) for live data updates | ✅ Optimized |
 | **City-Based Search** | Support for 20+ Saudi cities | ✅ Implemented |
 | **District Filtering** | Search by specific neighborhoods | ✅ Active |
-| **Real-time Data** | Live property listings updates | ✅ Active |
-| **Streaming API** | Efficient streaming responses | ✅ Optimized |
+| **Nearby Properties** | Find properties within specific radius | ✅ Active |
 | **CORS Support** | Cross-origin resource sharing enabled | ✅ Enabled |
-| **Async Processing** | High-concurrency request handling | ✅ Optimized |
-| **Error Handling** | Comprehensive error management | ✅ Robust |
-| **Rate Limiting Ready** | Built for high-volume requests | ✅ Ready |
-| **Documentation** | Interactive API documentation | ✅ Built-in |
+| **Async Processing** | High-concurrency request handling with asyncio | ✅ Optimized |
+| **Error Handling** | Comprehensive error management and validation | ✅ Robust |
+| **Interactive Documentation** | Swagger UI + ReDoc endpoints | ✅ Built-in |
 
 ### 🏙️ Supported Cities
 
@@ -103,23 +105,23 @@ Designed for developers and real estate professionals, this API provides real-ti
 ## 🛠️ Tech Stack
 
 ### Backend Framework
-- **FastAPI** v0.111.0 - Modern, fast web framework
+- **FastAPI** v0.111.0 - Modern, fast async web framework
 - **Uvicorn** v0.29.0 - ASGI web server
 
 ### Web Scraping & HTTP
-- **curl_cffi** v0.7.4 - Advanced HTTP requests with browser fingerprinting
+- **curl_cffi** - Advanced HTTP requests with browser fingerprinting
 - **BeautifulSoup4** v4.12.3 - HTML parsing and extraction
 - **HTTPX** v0.27.0 - Asynchronous HTTP client
-- **lxml** v5.2.1 - XML/HTML processing
+- **lxml** v5.2.1 - XML/HTML processing engine
 
-### Utilities
+### Utilities & Configuration
 - **python-dotenv** v1.0.1 - Environment variable management
 
-### Deployment Options
+### Deployment & Infrastructure
 - Docker & Docker Compose
 - Cloud Platforms (AWS, Google Cloud, Azure, Heroku)
 - Virtual Private Servers (VPS)
-- Kubernetes
+- Kubernetes orchestration
 
 ---
 
@@ -251,14 +253,29 @@ INFO:     Application startup complete
 ### Test the API
 
 ```bash
-# Using curl
-curl "http://localhost:8000/properties?city=riyadh&limit=10"
+# Test Properties Endpoint (using curl)
+curl "http://localhost:8000/api/properties?city=riyadh&limit=10"
+
+# Test Brokers Endpoint
+curl "http://localhost:8000/api/brokers?city=riyadh&limit=10"
 
 # Using Python
 import httpx
-async with httpx.AsyncClient() as client:
-    response = await client.get("http://localhost:8000/properties")
-    print(response.json())
+import asyncio
+
+async def test_api():
+    async with httpx.AsyncClient() as client:
+        # Test properties
+        response = await client.get("http://localhost:8000/api/properties", 
+                                   params={"city": "riyadh", "limit": 5})
+        print("Properties:", response.json())
+        
+        # Test brokers
+        response = await client.get("http://localhost:8000/api/brokers",
+                                   params={"city": "riyadh", "limit": 5})
+        print("Brokers:", response.json())
+
+asyncio.run(test_api())
 ```
 
 ---
@@ -270,11 +287,23 @@ async with httpx.AsyncClient() as client:
 http://localhost:8000
 ```
 
+### API Modules
+
+The API is organized into two main modules:
+
+#### 1. **Property Module** (`/property_scraper.py`)
+Real estate property search and listings
+
+#### 2. **Broker Module** (`/broker_scraper.py`)  
+Real estate agents and brokers search
+
 ### Available Endpoints
 
-#### 1. Search Properties by City
+#### Property Search Endpoints
 
-**Endpoint:** `GET /properties`
+##### 1. Search Properties by City
+
+**Endpoint:** `GET /api/properties`
 
 **Query Parameters:**
 
@@ -286,21 +315,22 @@ http://localhost:8000
 | `district` | string (optional) | Specific district within city | `Al Malaz`, `Al Olaya` |
 | `price_min` | integer (optional) | Minimum price in SAR | `100000` |
 | `price_max` | integer (optional) | Maximum price in SAR | `1000000` |
+| `property_type` | string (optional) | Type of property | `apartment`, `villa`, `house` |
 
 **Example Requests:**
 
 ```bash
 # Search properties in Riyadh (first 10 results)
-curl "http://localhost:8000/properties?city=riyadh&limit=10"
+curl "http://localhost:8000/api/properties?city=riyadh&limit=10"
 
 # Search in specific district
-curl "http://localhost:8000/properties?city=riyadh&district=Al%20Malaz&limit=20"
+curl "http://localhost:8000/api/properties?city=riyadh&district=Al%20Malaz&limit=20"
 
 # With pagination
-curl "http://localhost:8000/properties?city=jeddah&limit=25&offset=0"
+curl "http://localhost:8000/api/properties?city=jeddah&limit=25&offset=0"
 
 # Price range filter
-curl "http://localhost:8000/properties?city=riyadh&price_min=500000&price_max=2000000"
+curl "http://localhost:8000/api/properties?city=riyadh&price_min=500000&price_max=2000000"
 ```
 
 **Response Format (JSON):**
@@ -338,17 +368,17 @@ curl "http://localhost:8000/properties?city=riyadh&price_min=500000&price_max=20
 }
 ```
 
-#### 2. Search by District
+##### 2. Search by District
 
-**Endpoint:** `GET /properties/district/{city}/{district}`
+**Endpoint:** `GET /api/properties/district/{city}/{district}`
 
 ```bash
-curl "http://localhost:8000/properties/district/riyadh/Al%20Malaz"
+curl "http://localhost:8000/api/properties/district/riyadh/Al%20Malaz"
 ```
 
-#### 3. Nearby Properties
+##### 3. Nearby Properties
 
-**Endpoint:** `GET /properties/nearby`
+**Endpoint:** `GET /api/properties/nearby`
 
 **Query Parameters:**
 
@@ -360,17 +390,50 @@ curl "http://localhost:8000/properties/district/riyadh/Al%20Malaz"
 | `limit` | integer | Maximum results |
 
 ```bash
-curl "http://localhost:8000/properties/nearby?latitude=24.7136&longitude=46.6753&radius_km=5&limit=20"
+curl "http://localhost:8000/api/properties/nearby?latitude=24.7136&longitude=46.6753&radius_km=5&limit=20"
 ```
 
-#### 4. Stream Properties (Streaming Response)
+##### 4. Stream Properties (SSE - Streaming Response)
 
 **Endpoint:** `GET /stream/properties`
 
-Supports real-time streaming of properties as they're being scraped.
+Real-time streaming of properties as they're being scraped using Server-Sent Events.
 
 ```bash
 curl "http://localhost:8000/stream/properties?city=riyadh&limit=100"
+```
+
+#### Broker Search Endpoints
+
+##### 1. Search Brokers/Agents by City
+
+**Endpoint:** `GET /api/brokers`
+
+**Query Parameters:**
+
+| Parameter | Type | Description | Example |
+|-----------|------|-------------|---------|
+| `city` | string | City name (case-insensitive) | `riyadh`, `jeddah` |
+| `limit` | integer | Number of results to return | `10`, `50` |
+
+**Example Requests:**
+
+```bash
+# Search brokers in Riyadh
+curl "http://localhost:8000/api/brokers?city=riyadh&limit=20"
+
+# Search brokers in Jeddah
+curl "http://localhost:8000/api/brokers?city=jeddah&limit=15"
+```
+
+##### 2. Stream Brokers (SSE - Streaming Response)
+
+**Endpoint:** `GET /stream/brokers`
+
+Real-time streaming of broker data as they're being scraped using Server-Sent Events.
+
+```bash
+curl "http://localhost:8000/stream/brokers?city=riyadh&limit=50"
 ```
 
 ### Error Responses
@@ -661,16 +724,70 @@ sudo certbot certonly --nginx -d api.example.com
 
 ```
 Properties-Scraper-Api/
-├── main.py                 # FastAPI application & main logic
-├── requirements.txt        # Python dependencies
-├── .env                    # Environment variables (create this)
-├── .gitignore             # Git ignore file
-├── README.md              # This file
-├── Dockerfile             # Docker configuration
-├── docker-compose.yml     # Docker Compose configuration
-├── logs/                  # Application logs
-├── venv/                  # Virtual environment
-└── docs/                  # Documentation files
+├── main.py                    # FastAPI app entry point (CORS setup, router registration)
+├── property_scraper.py        # Property endpoints and platform-specific scrapers
+├── broker_scraper.py          # Broker/agent endpoints with SSE streaming
+├── shared.py                  # Shared utilities, constants, and helper functions
+├── requirements.txt           # Python dependencies
+├── .env                       # Environment variables (create this)
+├── .gitignore                 # Git ignore file
+├── README.md                  # This file
+├── Dockerfile                 # Docker configuration
+├── docker-compose.yml         # Docker Compose configuration
+├── logs/                      # Application logs
+├── venv/                      # Virtual environment
+└── docs/                      # Documentation files
+```
+
+### Architecture Overview
+
+The API follows a **modular router-based architecture** for clean separation of concerns:
+
+#### **Core Modules**
+
+1. **main.py** - Application Entry Point
+   - Initializes FastAPI application
+   - Configures CORS middleware
+   - Registers property and broker routers
+   - Serves as the single point of app setup
+
+2. **property_scraper.py** - Property Endpoints
+   - `/api/properties` - Search properties with filters
+   - `/api/properties/nearby` - Find nearby properties
+   - `/stream/properties` - Stream properties with SSE
+   - Platform-specific scrapers (Bayut, Aqar, PropertyFinder, Wasalt, etc.)
+   - Property data extraction and normalization
+
+3. **broker_scraper.py** - Broker Endpoints
+   - `/api/brokers` - Search real estate agents/brokers
+   - `/stream/brokers` - Stream broker data with SSE
+   - Integrates with property scrapers for broker information
+   - City-specific broker slugs and routing
+
+4. **shared.py** - Shared Utilities
+   - Bayut Algolia API configuration
+   - HTTP headers for different request types
+   - City coordinates and district data
+   - Helper functions (parsing, validation, distance calculation)
+   - Streaming response utilities (SSE)
+   - Common constants and configurations
+
+#### **Data Flow**
+
+```
+User Request
+    ↓
+FastAPI Router (property_scraper.py or broker_scraper.py)
+    ↓
+Platform-Specific Scraper
+    ↓
+HTTP Request (curl_cffi / httpx)
+    ↓
+Extract Data (BeautifulSoup / JSON parsing)
+    ↓
+Normalize & Format (shared.py utilities)
+    ↓
+Stream/Return Response (StreamingResponse or JSON)
 ```
 
 ### Running in Development Mode
@@ -727,7 +844,7 @@ import asyncio
 async def search_riyadh():
     async with httpx.AsyncClient() as client:
         response = await client.get(
-            "http://localhost:8000/properties",
+            "http://localhost:8000/api/properties",
             params={
                 "city": "riyadh",
                 "limit": 20
@@ -744,7 +861,7 @@ async def search_riyadh():
 asyncio.run(search_riyadh())
 ```
 
-### Example 2: Search with Price Filter
+### Example 2: Search Properties with Price Filter
 
 ```python
 import httpx
@@ -753,7 +870,7 @@ import asyncio
 async def search_with_price_filter():
     async with httpx.AsyncClient() as client:
         response = await client.get(
-            "http://localhost:8000/properties",
+            "http://localhost:8000/api/properties",
             params={
                 "city": "jeddah",
                 "price_min": 500000,
@@ -795,7 +912,7 @@ import asyncio
 async def find_nearby():
     async with httpx.AsyncClient() as client:
         response = await client.get(
-            "http://localhost:8000/properties/nearby",
+            "http://localhost:8000/api/properties/nearby",
             params={
                 "latitude": 24.7136,
                 "longitude": 46.6753,
@@ -809,6 +926,50 @@ async def find_nearby():
             print(f"{prop['title']} - {prop['price']:,} SAR")
 
 asyncio.run(find_nearby())
+```
+
+### Example 5: Search Brokers/Agents
+
+```python
+import httpx
+import asyncio
+
+async def search_brokers():
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            "http://localhost:8000/api/brokers",
+            params={
+                "city": "riyadh",
+                "limit": 20
+            }
+        )
+        
+        brokers = response.json()
+        for broker in brokers['data']:
+            print(f"Agent: {broker['name']}")
+            print(f"Phone: {broker['phone']}")
+            print(f"City: {broker['city']}")
+            print("---")
+
+asyncio.run(search_brokers())
+```
+
+### Example 6: Stream Brokers in Real-time
+
+```python
+import httpx
+
+def stream_brokers():
+    with httpx.stream(
+        "GET",
+        "http://localhost:8000/stream/brokers",
+        params={"city": "jeddah", "limit": 50}
+    ) as response:
+        for line in response.iter_lines():
+            if line:
+                print(f"Broker: {line}")
+
+stream_brokers()
 ```
 
 ---
@@ -889,6 +1050,24 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+#### Module Import Issues
+
+If you see `ModuleNotFoundError: No module named 'shared'`, `'property_scraper'`, or `'broker_scraper'`:
+
+```bash
+# Ensure you're running the server from the project root directory
+cd /path/to/Properties-Scraper-Api
+
+# Check that all Python files are present
+ls -la *.py  # Should show: main.py, property_scraper.py, broker_scraper.py, shared.py
+
+# Reinstall dependencies
+pip install -r requirements.txt
+
+# Run from project root
+uvicorn main:app --reload
+```
+
 #### Connection Error on localhost:8000
 
 ```bash
@@ -904,6 +1083,17 @@ uvicorn main:app --port 8001
 ```env
 # Increase timeout in .env
 TIMEOUT=60
+```
+
+#### ModuleNotFoundError in broker_scraper.py
+
+If you see errors importing from `property_scraper`, ensure the import is correct:
+
+```python
+# broker_scraper.py should import like this:
+from property_scraper import (
+    BayutScraper, PropertyFinderScraper, WasaltScraper, AqarScraper,
+)
 ```
 
 ---
