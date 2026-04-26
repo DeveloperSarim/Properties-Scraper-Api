@@ -140,6 +140,7 @@ _TYPE_INCLUDE = {
     "villa":      ["villa","فيلا","townhouse","دوبلكس","duplex"],
     "house":      ["house","منزل","townhouse"],
     "office":     ["office","مكتب","workspace"],
+    "shop":       ["shop","محل","retail","showroom","store","دكان"],
     "land":       ["land","plot","أرض","قطعة"],
     "commercial": ["commercial","shop","retail","تجاري","محل","showroom"],
 }
@@ -148,6 +149,7 @@ _TYPE_EXCLUDE = {
     "villa":      ["apartment","flat","studio","شقة","office","أرض","land plot"],
     "house":      ["apartment","flat","office","أرض"],
     "office":     ["apartment","villa","land","فيلا","أرض"],
+    "shop":       ["apartment","flat","villa","فيلا","شقة","land","أرض","office","مكتب"],
     "land":       ["apartment","villa","office","فيلا","شقة"],
     "commercial": ["apartment","villa","فيلا","شقة"],
 }
@@ -158,13 +160,19 @@ class BaseScraper:
     base_url: str = ""
     mock_count: int = 8
 
-    def __init__(self, location, min_price, max_price, rooms, property_type, listing_type):
-        self.location = location
-        self.min_price = min_price
-        self.max_price = max_price
-        self.rooms = rooms
+    def __init__(self, location, min_price, max_price, rooms, property_type, listing_type,
+                 area_slug: str = "", district_slug: str = "",
+                 min_area: int = None, max_area: int = None):
+        self.location      = location
+        self.min_price     = min_price
+        self.max_price     = max_price
+        self.rooms         = rooms
         self.property_type = property_type.lower()
-        self.listing_type = listing_type.lower()
+        self.listing_type  = listing_type.lower()
+        self.area_slug     = area_slug     # e.g. "/riyadh/north-riyadh"
+        self.district_slug = district_slug # e.g. "/riyadh/north-riyadh/al-olaya"
+        self.min_area      = min_area
+        self.max_area      = max_area
 
     async def scrape(self, client: AsyncSession) -> list[dict]:
         raise NotImplementedError
@@ -172,12 +180,14 @@ class BaseScraper:
     def _type_filter(self, results: list[dict]) -> list[dict]:
         inc = _TYPE_INCLUDE.get(self.property_type, [])
         exc = _TYPE_EXCLUDE.get(self.property_type, [])
-        if not inc and not exc:
+        # If no exclusion rules exist, return all results as-is
+        if not exc:
             return results
         filtered = []
         for r in results:
-            t = (r.get("title","") or "").lower()
-            if any(k in t for k in exc):
+            title = (r.get("title", "") or "").lower()
+            # Exclude listings whose title contains a forbidden keyword
+            if any(k in title for k in exc):
                 continue
             filtered.append(r)
         return filtered
@@ -284,6 +294,7 @@ class BayutScraper(BaseScraper):
         "villa":     "villas",
         "house":     "townhouses",
         "office":    "offices",
+        "shop":      "commercial",   # Bayut has no 'shops' — shops live under 'commercial'
         "land":      "residential-lands",
         "commercial":"showrooms",
     }
@@ -379,62 +390,99 @@ class BayutScraper(BaseScraper):
 
     async def scrape(self, client: AsyncSession) -> list[dict]:
         try:
-            purpose    = "for-sale" if self.listing_type == "sale" else "for-rent"
-            cat_slug   = self._CAT_SLUGS.get(self.property_type, "apartments")
+            purpose  = "for-sale" if self.listing_type == "sale" else "for-rent"
+            cat_slug = self._CAT_SLUGS.get(self.property_type, "apartments")
 
-            city_str   = _city_from_location(self.location).strip().lower()
-            city_slug  = self._CITY_SLUGS.get(city_str,
-                             f"/{city_str.replace(' ', '-')}")
-            district_q = ""
-            if "," in self.location:
-                district_q = self.location.split(",")[0].strip()
+            city_str  = _city_from_location(self.location).strip().lower()
+            city_slug = self._CITY_SLUGS.get(city_str,
+                            f"/{city_str.replace(' ', '-')}")
+
+            # ── Precision location filter (district > area > city) ──────────
+            if self.district_slug:
+                slugs = [s.strip() for s in self.district_slug.split(",") if s.strip()]
+                facet_filter = [f"location.slug_l1:{s}" for s in slugs]
+                query_q      = ""
+            elif self.area_slug:
+                facet_filter = [f"location.slug_l1:{self.area_slug}"]
+                query_q      = ""
+            else:
+                facet_filter = [f"location.slug_l1:{city_slug}"]
+                query_q = self.location.split(",")[0].strip() if "," in self.location else ""
 
             filters = f"purpose:{purpose} AND category.slug_l1:{cat_slug}"
             if self.min_price: filters += f" AND price>={self.min_price}"
             if self.max_price: filters += f" AND price<={self.max_price}"
             if self.rooms:     filters += f" AND rooms={self.rooms}"
+            if self.min_area:  filters += f" AND area>={self.min_area}"
+            if self.max_area:  filters += f" AND area<={self.max_area}"
 
-            results = []
-            for page in range(2):
-                payload = {
-                    "query": district_q,
-                    "filters": filters,
-                    "facetFilters": [[f"location.slug_l1:{city_slug}"]],
-                    "hitsPerPage": 20,
-                    "page": page,
+            HITS_PER_PAGE = 100           # Algolia max per request
+            MAX_PAGES     = 10            # 10 × 100 = 1000 results (Algolia hard limit)
+
+            _hdrs = {
+                "X-Algolia-Application-Id": BAYUT_ALGOLIA_APP_ID,
+                "X-Algolia-API-Key":        BAYUT_ALGOLIA_API_KEY,
+                "Content-Type":             "application/json",
+                "Origin":                   "https://www.bayut.sa",
+                "Referer":                  "https://www.bayut.sa/",
+            }
+
+            def _payload(page: int) -> dict:
+                return {
+                    "query":        query_q,
+                    "filters":      filters,
+                    "facetFilters": [facet_filter],
+                    "hitsPerPage":  HITS_PER_PAGE,
+                    "page":         page,
                     "attributesToRetrieve": [
                         "title_l1","price","purpose","rooms","baths","area",
                         "externalID","slug_l1","coverPhoto","phoneNumber",
                         "geography","_geoloc","location","rentFrequency",
+                        "agent","agency",
                     ],
                 }
-                r = await client.post(
-                    BAYUT_ALGOLIA_URL,
-                    json=payload,
-                    headers={
-                        "X-Algolia-Application-Id": BAYUT_ALGOLIA_APP_ID,
-                        "X-Algolia-API-Key":        BAYUT_ALGOLIA_API_KEY,
-                        "Content-Type":             "application/json",
-                        "Origin":                   "https://www.bayut.sa",
-                        "Referer":                  "https://www.bayut.sa/",
-                    },
-                    timeout=15,
-                )
-                if r.status_code == 200:
-                    data = r.json()
-                    hits = data.get("hits", [])
-                    parsed = [self._parse_hit(h) for h in hits]
-                    results.extend([x for x in parsed if x])
-                    if len(hits) < 20: break
-                else:
-                    print(f"[Bayut Algolia] status={r.status_code}")
-                    break
 
-            print(f"[Bayut] {len(results)} listings")
+            # ── Step 1: probe page 0 to learn total hit count ──────────────
+            probe = await client.post(BAYUT_ALGOLIA_URL, json=_payload(0),
+                                      headers=_hdrs, timeout=15)
+            if probe.status_code != 200:
+                print(f"[Bayut Algolia] probe status={probe.status_code}")
+                return []
+
+            probe_data   = probe.json()
+            total_hits   = probe_data.get("nbHits", 0)
+            nb_pages     = probe_data.get("nbPages", 1)
+            pages_needed = min(nb_pages, MAX_PAGES)
+
+            print(f"[Bayut] {total_hits} total hits → fetching {pages_needed} pages in parallel")
+            all_hits = list(probe_data.get("hits", []))
+
+            # ── Step 2: fetch remaining pages in PARALLEL ──────────────────
+            if pages_needed > 1:
+                tasks = [
+                    client.post(BAYUT_ALGOLIA_URL, json=_payload(p),
+                                headers=_hdrs, timeout=20)
+                    for p in range(1, pages_needed)
+                ]
+                responses = await asyncio.gather(*tasks, return_exceptions=True)
+                for resp in responses:
+                    if isinstance(resp, Exception):
+                        continue
+                    if resp.status_code == 200:
+                        all_hits.extend(resp.json().get("hits", []))
+
+            # ── Step 3: parse + filter ─────────────────────────────────────
+            parsed  = [self._parse_hit(h) for h in all_hits]
+            results = [x for x in parsed if x]
+            results = self._type_filter(results)
+
+            level = "district" if self.district_slug else "area" if self.area_slug else "city"
+            print(f"[Bayut] {len(results)}/{total_hits} listings returned (filter={level})")
             return results
         except Exception as e:
             print(f"[Bayut] error: {e}")
             return []
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Aqar
@@ -1225,6 +1273,116 @@ def get_platforms():
     return platform_meta
 
 
+@router.get("/api/locations")
+async def get_locations(
+    city:      Optional[str] = Query(None),
+    area_slug: Optional[str] = Query(None),
+):
+    """
+    Real-time location hierarchy from Bayut Algolia.
+    - No params           → list of city names
+    - ?city=riyadh        → list of areas in that city
+    - ?area_slug=/riyadh/north-riyadh → list of districts in that area
+    """
+    _hdrs = {
+        "X-Algolia-Application-Id": BAYUT_ALGOLIA_APP_ID,
+        "X-Algolia-API-Key":        BAYUT_ALGOLIA_API_KEY,
+        "Content-Type":             "application/json",
+        "Origin":                   "https://www.bayut.sa",
+        "Referer":                  "https://www.bayut.sa/",
+    }
+
+    # ── No params: return cities ───────────────────────────────────────────
+    if not city and not area_slug:
+        from shared import CITY_COORDS
+        city_names = sorted(set([
+            k.title() for k in CITY_COORDS.keys()
+            if k not in ("khobar", "ahsa", "taif", "jubail")  # deduplicate aliases
+        ]))
+        return {"cities": city_names}
+
+    async with AsyncSession(impersonate="chrome124") as client:
+
+        # ── area_slug given: return districts ──────────────────────────────
+        if area_slug:
+            try:
+                # area_slug e.g. "/jeddah/north-jeddah" — filter by exact slug_l1 at area level
+                # Then collect all level=3 items (districts) under this area
+                payload = {
+                    "query":        "",
+                    "facetFilters": [[f"location.slug_l1:{area_slug}"]],
+                    "attributesToRetrieve": ["location"],
+                    "hitsPerPage":  200,
+                    "page":         0,
+                }
+                r = await client.post(BAYUT_ALGOLIA_URL, json=payload, headers=_hdrs, timeout=12)
+                districts: dict[str, str] = {}
+                if r.status_code == 200:
+                    for hit in r.json().get("hits", []):
+                        for loc in hit.get("location", []):
+                            # level 3 = district, slug_l1 = full path e.g. /jeddah/north-jeddah/al-manar
+                            if loc.get("level") == 3:
+                                sl = loc.get("slug_l1", "")
+                                name = loc.get("name_l1", "")
+                                if sl and name and sl not in districts:
+                                    districts[sl] = name
+                print(f"[/api/locations] {len(districts)} districts for area '{area_slug}'")
+                return {
+                    "districts": [
+                        {"slug": s, "name": n}
+                        for s, n in sorted(districts.items(), key=lambda x: x[1])
+                    ]
+                }
+            except Exception as e:
+                print(f"[/api/locations districts] {e}")
+                return {"districts": []}
+
+        # ── city given: return areas ───────────────────────────────────────
+        city_lower = city.strip().lower()
+        city_slug  = BayutScraper._CITY_SLUGS.get(
+            city_lower,
+            f"/{city_lower.replace(' ', '-')}"
+        )
+        try:
+            # Fetch 2 pages of hits to capture more areas
+            all_hits = []
+            for pg in range(3):
+                payload = {
+                    "query":        "",
+                    "facetFilters": [[f"location.slug_l1:{city_slug}"]],
+                    "attributesToRetrieve": ["location"],
+                    "hitsPerPage":  200,
+                    "page":         pg,
+                }
+                r = await client.post(BAYUT_ALGOLIA_URL, json=payload, headers=_hdrs, timeout=12)
+                if r.status_code != 200 or not r.json().get("hits"):
+                    break
+                all_hits.extend(r.json()["hits"])
+
+            areas: dict[str, str] = {}
+            for hit in all_hits:
+                for loc in hit.get("location", []):
+                    # Bayut actual structure:
+                    # level 0 = country, 1 = city, 2 = area, 3 = district
+                    # slug_l1 = full path, e.g. /jeddah/north-jeddah for area level
+                    if loc.get("level") == 2:
+                        sl = loc.get("slug_l1", "")
+                        name = loc.get("name_l1", "")
+                        if sl and name and sl not in areas:
+                            areas[sl] = name
+
+            print(f"[/api/locations] {len(areas)} areas for '{city_lower}'")
+            return {
+                "areas": [
+                    {"slug": s, "name": n}
+                    for s, n in sorted(areas.items(), key=lambda x: x[1])
+                ]
+            }
+        except Exception as e:
+            print(f"[/api/locations areas] {e}")
+            return {"areas": []}
+
+
 @router.get("/api/stream")
 async def stream(
     location:      str            = Query(...),
@@ -1234,6 +1392,10 @@ async def stream(
     property_type: str            = Query("apartment"),
     listing_type:  str            = Query("sale"),
     platforms:     Optional[str]  = Query(None),
+    area_slug:     Optional[str]  = Query(None),
+    district_slug: Optional[str]  = Query(None),
+    min_area:      Optional[int]  = Query(None),
+    max_area:      Optional[int]  = Query(None),
 ):
     property_types = [t.strip() for t in property_type.split(",") if t.strip()] or ["apartment"]
 
@@ -1246,8 +1408,12 @@ async def stream(
     scrapers: list[BaseScraper] = []
     seen_classes: set = set()
     for pt in property_types:
-        kw = dict(location=location, min_price=buf_min, max_price=buf_max,
-                  rooms=rooms, property_type=pt, listing_type=listing_type)
+        kw = dict(
+            location=location, min_price=buf_min, max_price=buf_max,
+            rooms=rooms, property_type=pt, listing_type=listing_type,
+            area_slug=area_slug or "", district_slug=district_slug or "",
+            min_area=min_area, max_area=max_area,
+        )
         for sc in _build_scrapers(platform_list, kw):
             key = (type(sc).__name__, pt)
             if key not in seen_classes:
@@ -1315,10 +1481,13 @@ async def batch(
     property_type: str            = Query("apartment"),
     listing_type:  str            = Query("sale"),
     platforms:     Optional[str]  = Query(None),
+    min_area:      Optional[int]  = Query(None),
+    max_area:      Optional[int]  = Query(None),
 ):
     agg = PropertyAggregator(location=location, min_price=min_price, max_price=max_price,
                               rooms=rooms, property_type=property_type, listing_type=listing_type,
-                              platforms=[p.strip() for p in platforms.split(",")] if platforms else None)
+                              platforms=[p.strip() for p in platforms.split(",")] if platforms else None,
+                              min_area=min_area, max_area=max_area)
     listings = await agg.aggregate()
     return {"status":"success","count":len(listings),"listings":listings}
 
