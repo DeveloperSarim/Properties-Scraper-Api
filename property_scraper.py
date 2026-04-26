@@ -38,20 +38,24 @@ def _platform_search_url(platform_name: str, location: str, prop_type: str,
     BAYUT_TYPES = {
         "apartment":"apartments", "villa":"villas", "house":"houses",
         "office":"offices", "land":"land", "commercial":"commercial-spaces",
+        "residential":"residential-buildings", "building":"residential-buildings",
     }
     PF_SALE_TYPES = {
         "apartment":"apartments-for-sale",  "villa":"villas-for-sale",
         "house":"houses-for-sale",          "office":"offices-for-sale",
         "land":"land-for-sale",             "commercial":"commercial-for-sale",
+        "residential":"whole-building-for-sale", "building":"whole-building-for-sale",
     }
     PF_RENT_TYPES = {
         "apartment":"apartments-for-rent",  "villa":"villas-for-rent",
         "house":"houses-for-rent",          "office":"offices-for-rent",
         "land":"land-for-rent",             "commercial":"commercial-for-rent",
+        "residential":"whole-building-for-rent", "building":"whole-building-for-rent",
     }
     AQAR_TYPE_AR = {
         "apartment":"شقة", "villa":"فيلا", "house":"منزل",
         "land":"أرض", "office":"مكتب", "commercial":"تجاري",
+        "residential":"عمارة", "building":"عمارة",
     }
     AQAR_CITY_AR = {
         "riyadh":"الرياض", "jeddah":"جدة", "dammam":"الدمام",
@@ -139,6 +143,8 @@ _TYPE_INCLUDE = {
     "apartment":  ["apartment","flat","studio","شقة","شقق"],
     "villa":      ["villa","فيلا","townhouse","دوبلكس","duplex"],
     "house":      ["house","منزل","townhouse"],
+    "residential":["residential","building","عمارة","مبنى","عمارات","عماير"],
+    "building":   ["residential","building","عمارة","مبنى","عمارات","عماير"],
     "office":     ["office","مكتب","workspace"],
     "shop":       ["shop","محل","retail","showroom","store","دكان"],
     "land":       ["land","plot","أرض","قطعة"],
@@ -146,11 +152,13 @@ _TYPE_INCLUDE = {
 }
 _TYPE_EXCLUDE = {
     "apartment":  ["villa","فيلا","أرض","land plot"],
-    "villa":      ["apartment","flat","studio","شقة","office","أرض","land plot"],
-    "house":      ["apartment","flat","office","أرض"],
-    "office":     ["apartment","villa","land","فيلا","أرض"],
-    "shop":       ["apartment","flat","villa","فيلا","شقة","land","أرض","office","مكتب"],
-    "land":       ["apartment","villa","office","فيلا","شقة"],
+    "villa":      ["apartment","flat","studio","شقة","office","أرض","land plot","عمارة"],
+    "house":      ["apartment","flat","office","أرض","عمارة"],
+    "residential":["شقة","apartment","villa","فيلا","أرض","land","studio","flat","استوديو"],
+    "building":   ["شقة","apartment","villa","فيلا","أرض","land","studio","flat","استوديو"],
+    "office":     ["apartment","villa","land","فيلا","أرض","عمارة"],
+    "shop":       ["apartment","flat","villa","فيلا","شقة","land","أرض","office","مكتب","عمارة"],
+    "land":       ["apartment","villa","office","فيلا","شقة","عمارة"],
     "commercial": ["apartment","villa","فيلا","شقة"],
 }
 
@@ -297,6 +305,8 @@ class BayutScraper(BaseScraper):
         "shop":      "commercial",   # Bayut has no 'shops' — shops live under 'commercial'
         "land":      "residential-lands",
         "commercial":"showrooms",
+        "residential":"residential-buildings",
+        "building":  "residential-buildings",
     }
     _CITY_SLUGS = {
         "riyadh":      "/riyadh",
@@ -499,6 +509,10 @@ class AqarScraper(BaseScraper):
         ("villa",      "sale"): "فلل-للبيع",
         ("house",      "rent"): "منازل-للإيجار",
         ("house",      "sale"): "منازل-للبيع",
+        ("residential","rent"): "عماير-للإيجار",
+        ("residential","sale"): "عماير-للبيع",
+        ("building",   "rent"): "عماير-للإيجار",
+        ("building",   "sale"): "عماير-للبيع",
         ("land",       "sale"): "أراضي-للبيع",
         ("land",       "rent"): "أراضي-للإيجار",
         ("office",     "rent"): "مكاتب-للإيجار",
@@ -828,6 +842,7 @@ class WasaltScraper(BaseScraper):
         "apartment": "apartments", "villa": "villas",
         "house":     "houses",     "land":  "land",
         "office":    "offices",    "commercial": "commercial",
+        "residential": "buildings", "building": "buildings",
     }
     _CITIES = {
         "riyadh":    "riyadh",    "jeddah":   "jeddah",
