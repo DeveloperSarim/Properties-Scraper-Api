@@ -423,7 +423,7 @@ async def _bayut_companies_directory(client: AsyncSession, city_str: str) -> lis
         agencies, nb_pages = _parse_bayut_agencies_page(r0.text)
 
         # Fetch all remaining pages in parallel
-        extra = list(range(1, min(nb_pages, 50)))
+        extra = list(range(1, nb_pages))
         if extra:
             resps = await asyncio.gather(
                 *[client.get(f"{base_url}?page={p+1}", headers=headers, timeout=18)
@@ -507,19 +507,25 @@ async def _pf_agents(client: AsyncSession, city_str: str) -> list[dict]:
                     "areas":         [_str(b.get("location"), "")] if b.get("location") else [],
                     "profile_url":   profile_url,
                 })
-            return out
+            return out, data.get("props", {}).get("pageProps", {}).get("searchResult", {}).get("meta", {}).get("lastPage", 5)
         except Exception:
-            return []
+            return [], 1
 
-    pages = await asyncio.gather(*[_fetch(p) for p in range(1, 6)], return_exceptions=True)
-    seen, results = set(), []
-    for page_list in pages:
-        if not isinstance(page_list, list):
-            continue
-        for b in page_list:
-            if b["phone"] not in seen:
-                seen.add(b["phone"])
-                results.append(b)
+    # Fetch page 1 first to get pagination info
+    first_page_res, total_pages = await _fetch(1)
+    results = list(first_page_res)
+    seen = {b["phone"] for b in results if b.get("phone")}
+    
+    if total_pages > 1:
+        pages = await asyncio.gather(*[_fetch(p) for p in range(2, total_pages + 1)], return_exceptions=True)
+        for page_tuple in pages:
+            if not isinstance(page_tuple, tuple):
+                continue
+            page_list, _ = page_tuple
+            for b in page_list:
+                if b["phone"] not in seen:
+                    seen.add(b["phone"])
+                    results.append(b)
     print(f"[PFAgents] {len(results)} for '{city_label}'")
     return results
 
@@ -712,8 +718,8 @@ async def _brokers_from_listings(client: AsyncSession, location: str) -> list[di
 # Source 7: Bayut Algolia — district-level deep scan
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def _bayut_district_brokers(client: AsyncSession, city_str: str) -> list[dict]:
-    districts = _DISTRICT_QUERIES.get(city_str, [])
+async def _bayut_district_brokers(client: AsyncSession, city_str: str, target_district: str = "") -> list[dict]:
+    districts = [target_district] if target_district else _DISTRICT_QUERIES.get(city_str, [])
     if not districts:
         return []
 
@@ -842,6 +848,7 @@ async def brokers_stream(
     city_str = "" if raw_city in ("saudi arabia", "ksa", "") else raw_city
     search_location = location if city_str else "Riyadh"
     search_city     = city_str if city_str else "riyadh"
+    search_district = location.split(",")[0].strip() if "," in location else ""
 
     async def gen() -> AsyncIterator[str]:
         merger = BrokerMerger()
@@ -866,42 +873,42 @@ async def brokers_stream(
         async with AsyncSession(impersonate="chrome124") as client:
 
             # Phase 1: Bayut — Algolia + agents dir + companies dir (parallel)
-            yield _sse({"status": "scanning", "platform": "Bayut",
-                        "message": "Scanning Bayut listings, agents & companies…"})
-            bayut_results = await asyncio.gather(
-                _bayut_brokers_algolia(client, city_str),        # city_str="" = all KSA
-                _bayut_agents_directory(client, search_city),
-                _bayut_companies_directory(client, search_city), # authoritative counts
-                return_exceptions=True,
-            )
-            # Ingest Algolia + agents directory normally (adds to listing_count)
-            bayut_count = sum(
-                _ingest(r) for r in bayut_results[:2] if isinstance(r, list)
-            )
-            # Companies directory: override listing counts with authoritative stats.adsCount
-            if isinstance(bayut_results[2], list):
-                for agency in bayut_results[2]:
-                    phone = agency.get("phone", "")
-                    if phone:
-                        merger.override_listing_count(
-                            phone,
-                            agency["listing_count"],
-                            name=agency.get("name", ""),
-                            agency=agency.get("agency", ""),
-                            photo_url=agency.get("photo_url", ""),
-                            profile_url=agency.get("profile_url", ""),
-                            areas=agency.get("areas", []),
-                        )
-            for _ev in _stream_new(merger.snapshot()):
-                yield _ev
-            yield _sse({"status": "platform_done", "platform": "Bayut",
-                        "count": len(merger)})
+            if not search_district:
+                yield _sse({"status": "scanning", "platform": "Bayut",
+                            "message": "Scanning Bayut listings, agents & companies…"})
+                bayut_results = await asyncio.gather(
+                    _bayut_brokers_algolia(client, city_str),        # city_str="" = all KSA
+                    _bayut_agents_directory(client, search_city),
+                    _bayut_companies_directory(client, search_city), # authoritative counts
+                    return_exceptions=True,
+                )
+                bayut_count = sum(
+                    _ingest(r) for r in bayut_results[:2] if isinstance(r, list)
+                )
+                if isinstance(bayut_results[2], list):
+                    for agency in bayut_results[2]:
+                        phone = agency.get("phone", "")
+                        if phone:
+                            merger.override_listing_count(
+                                phone,
+                                agency["listing_count"],
+                                name=agency.get("name", ""),
+                                agency=agency.get("agency", ""),
+                                photo_url=agency.get("photo_url", ""),
+                                profile_url=agency.get("profile_url", ""),
+                                areas=agency.get("areas", []),
+                            )
+                for _ev in _stream_new(merger.snapshot()):
+                    yield _ev
+                yield _sse({"status": "platform_done", "platform": "Bayut",
+                            "count": len(merger)})
 
-            # Phase 2: Bayut district deep-scan (Riyadh + Jeddah only)
-            if search_city in _DISTRICT_QUERIES:
+            # Phase 2: Bayut district deep-scan (Targeted district or top districts)
+            if search_district or search_city in _DISTRICT_QUERIES:
+                msg_target = search_district if search_district else f"{search_city.title()} districts"
                 yield _sse({"status": "scanning", "platform": "Bayut Districts",
-                            "message": f"Deep scanning {search_city.title()} districts…"})
-                district_brokers = await _bayut_district_brokers(client, search_city)
+                            "message": f"Deep scanning {msg_target}…"})
+                district_brokers = await _bayut_district_brokers(client, search_city, search_district)
                 _ingest(district_brokers)
                 for _ev in _stream_new(merger.snapshot()):
                     yield _ev
@@ -909,26 +916,25 @@ async def brokers_stream(
                             "count": len(streamed)})
 
             # Phase 3: PropertyFinder + Wasalt + Aqar directories (parallel)
-            yield _sse({"status": "scanning", "platform": "PropertyFinder",
-                        "message": "Scanning PropertyFinder & Wasalt broker directories…"})
-            dir_results = await asyncio.gather(
-                _pf_agents(client, search_city),
-                _wasalt_agents(client, search_city),
-                _aqar_brokers(client, search_city),
-                return_exceptions=True,
-            )
-            dir_labels = ["PropertyFinder", "Wasalt", "Aqar"]
-            for label, res in zip(dir_labels, dir_results):
-                if isinstance(res, Exception):
-                    print(f"[Phase3/{label}] EXCEPTION: {res}")
-                    continue
-                if not isinstance(res, list):
-                    continue
-                print(f"[Phase3/{label}] {len(res)} brokers")
-                new_n = _ingest(res)
-                yield _sse({"status": "platform_done", "platform": label, "count": new_n})
-            for _ev in _stream_new(merger.snapshot()):
-                yield _ev
+            if not search_district:
+                yield _sse({"status": "scanning", "platform": "PropertyFinder",
+                            "message": "Scanning PropertyFinder & Wasalt broker directories…"})
+                dir_results = await asyncio.gather(
+                    _pf_agents(client, search_city),
+                    _wasalt_agents(client, search_city),
+                    _aqar_brokers(client, search_city),
+                    return_exceptions=True,
+                )
+                dir_labels = ["PropertyFinder", "Wasalt", "Aqar"]
+                for label, res in zip(dir_labels, dir_results):
+                    if isinstance(res, Exception):
+                        continue
+                    if not isinstance(res, list):
+                        continue
+                    new_n = _ingest(res)
+                    yield _sse({"status": "platform_done", "platform": label, "count": new_n})
+                for _ev in _stream_new(merger.snapshot()):
+                    yield _ev
 
             # Phase 4: Listing-based extraction (PF + Wasalt + Aqar in parallel)
             yield _sse({"status": "scanning", "platform": "Listings",
@@ -941,14 +947,15 @@ async def brokers_stream(
                         "count": new_listing})
 
             # Phase 5: Haraj phone extraction
-            yield _sse({"status": "scanning", "platform": "Haraj",
-                        "message": "Extracting contacts from Haraj listings…"})
-            haraj_brokers = await _haraj_brokers(client, search_city)
-            new_haraj = _ingest(haraj_brokers)
-            for _ev in _stream_new(merger.snapshot()):
-                yield _ev
-            yield _sse({"status": "platform_done", "platform": "Haraj",
-                        "count": new_haraj})
+            if not search_district:
+                yield _sse({"status": "scanning", "platform": "Haraj",
+                            "message": "Extracting contacts from Haraj listings…"})
+                haraj_brokers = await _haraj_brokers(client, search_city)
+                new_haraj = _ingest(haraj_brokers)
+                for _ev in _stream_new(merger.snapshot()):
+                    yield _ev
+                yield _sse({"status": "platform_done", "platform": "Haraj",
+                            "count": new_haraj})
 
         yield _sse({"status": "complete"})
 
