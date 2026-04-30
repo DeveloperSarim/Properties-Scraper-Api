@@ -427,7 +427,7 @@ class BayutScraper(BaseScraper):
             if self.max_area:  filters += f" AND area<={self.max_area}"
 
             HITS_PER_PAGE = 100           # Algolia max per request
-            MAX_PAGES     = 100           # Scaled up to fetch all properties (up to 10,000)
+            MAX_PAGES     = 200           # Scaled up to fetch all properties (up to 20,000)
 
             _hdrs = {
                 "X-Algolia-Application-Id": BAYUT_ALGOLIA_APP_ID,

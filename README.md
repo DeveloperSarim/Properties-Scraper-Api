@@ -1,1205 +1,300 @@
-# 🏠 Saudi Property Scraper API
-
 <div align="center">
 
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.111.0-009688?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com/)
-[![Python](https://img.shields.io/badge/Python-3.8+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
-[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
-[![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)](https://github.com/DeveloperSarim/Properties-Scraper-Api)
+# Saudi Property Scraper API
 
-**Real-time Property Scraping API for Saudi Arabia Markets** 🇸🇦
+### Fastest Multi-Source Saudi Real Estate Scraper for Properties + Brokers
 
-[Features](#-features) • [Quick Start](#-quick-start) • [Documentation](#-api-documentation) • [Deployment](#-deployment) • [Contributing](#-contributing)
+<p align="center">
+  <img src="https://capsule-render.vercel.app/api?type=waving&width=1800&height=220&text=Saudi%20Property%20Scraper%20API&fontAlign=50&fontAlignY=35&fontSize=60&color=0:0E7A53,100:1B9C85&fontColor=ffffff&desc=FastAPI%20%7C%20SSE%20Streaming%20%7C%2013%20Platforms&descAlign=50&descAlignY=70&descSize=24" alt="Saudi Property Scraper Banner" width="92%" />
+</p>
+
+[![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.111.0-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Uvicorn](https://img.shields.io/badge/Uvicorn-ASGI%20Server-4051B5?style=for-the-badge&logo=gunicorn&logoColor=white)](https://www.uvicorn.org)
+[![Vercel](https://img.shields.io/badge/Deploy-Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://vercel.com)
+[![License](https://img.shields.io/badge/License-MIT-16A34A?style=for-the-badge)](LICENSE)
+
+[![SSE](https://img.shields.io/badge/Live%20Updates-SSE-0EA5E9?style=flat-square)](#streaming-endpoints)
+[![Coverage](https://img.shields.io/badge/Property%20Platforms-13-22C55E?style=flat-square)](#supported-platforms)
+[![API](https://img.shields.io/badge/Total%20Endpoints-7-14B8A6?style=flat-square)](#api-reference)
+[![Region](https://img.shields.io/badge/Region-Saudi%20Arabia-0F766E?style=flat-square)](#city-and-location-intelligence)
+
+[Quick Start](#quick-start) • [API Reference](#api-reference) • [Live Stream](#streaming-endpoints) • [Platforms](#supported-platforms) • [Deployment](#deployment)
 
 </div>
 
 ---
 
-## 📋 Table of Contents
+## Overview
 
-- [🎯 Overview](#overview)
-- [✨ Features](#-features)
-- [🛠️ Tech Stack](#️-tech-stack)
-- [📦 Installation](#-installation)
-- [⚙️ Configuration](#️-configuration)
-- [🚀 Quick Start](#-quick-start)
-- [📚 API Documentation](#-api-documentation)
-- [🌐 Deployment Guide](#-deployment)
-- [👨‍💻 Development Guide](#️-development-guide)
-- [📖 Examples](#-examples)
-- [🤝 Contributing](#-contributing)
-- [📝 License](#-license)
-- [💬 Support](#-support)
+Saudi Property Scraper API is a high-performance backend built with FastAPI that aggregates property listings and broker contacts across major Saudi real estate sources.
 
----
+It is optimized for speed with asynchronous scraping, concurrent platform execution, and live SSE streaming so applications can render results as they arrive.
 
-## 🎯 Overview
+<p align="center">
+  <img src="https://images.unsplash.com/photo-1600607687920-4e2a09cf159d?q=80&w=1400&auto=format&fit=crop" alt="Modern property in Saudi market" width="100%" />
+</p>
 
-**Saudi Property Scraper API** is a high-performance, asynchronous web scraping API built with **FastAPI** that aggregates property listings from major Saudi Arabian real estate platforms including **Bayut**, **Aqar**, **PropertyFinder**, **Wasalt**, and 10+ additional marketplace platforms. 
+## Live Product Stats
 
-Designed for developers and real estate professionals, this API provides real-time access to comprehensive property data across all major Saudi cities, enabling you to build powerful real estate applications, market analysis tools, and property comparison platforms.
+| Metric | Value | Notes |
+|---|---:|---|
+| Property Platforms | 13 | Aggregated in property engine |
+| API Endpoints | 7 | Properties, brokers, locations, health |
+| Streaming Endpoints | 2 | `/api/stream`, `/api/brokers` |
+| Architecture | Async + Concurrent | Fast fan-out scraping |
+| Runtime | FastAPI + Uvicorn | Production-ready stack |
 
-**Key Highlights:**
-- ⚡ **Ultra-Fast**: Asynchronous processing with streaming responses
-- 🔄 **Multi-Platform**: Aggregate from 13+ verified real estate platforms (Bayut, Aqar, PropertyFinder, Wasalt, Sakani, Haraj, OpenSooq, and more)
-- 🌍 **Nationwide Coverage**: Access properties across all 20+ Saudi cities
-- 🔐 **Secure**: CORS-enabled with built-in security headers
-- 📊 **Real-time Data**: Live property listings with instant updates
-- 🚀 **Production-Ready**: Enterprise-grade performance and reliability
+## Why This Is Fast
 
----
+- Async HTTP scraping using `curl_cffi` and concurrent execution.
+- Multi-platform parallelization per request.
+- Stream-first design with SSE for immediate partial results.
+- Lightweight API layer with efficient JSON normalization.
 
-## ✨ Features
+## Visual Architecture
 
-### 🔍 Core Features
+```mermaid
+flowchart LR
+    A[Client App] --> B[FastAPI API Layer]
+    B --> C[/api/properties Batch/]
+    B --> D[/api/stream SSE/]
+    B --> E[/api/brokers SSE/]
 
-| Feature | Description | Status |
-|---------|-------------|--------|
-| **Modular Architecture** | Clean separation of concerns with router-based design | ✅ Optimized |
-| **Multi-Platform Scraping** | Platform-specific scrapers for 13+ real estate sites | ✅ Active |
-| **Property Search API** | Comprehensive property search with filters | ✅ Implemented |
-| **Broker/Agent API** | Search and list real estate agents with SSE | ✅ Active |
-| **Real-time Streaming** | SSE (Server-Sent Events) for live data updates | ✅ Optimized |
-| **City-Based Search** | Support for 20+ Saudi cities | ✅ Implemented |
-| **District Filtering** | Search by specific neighborhoods | ✅ Active |
-| **Nearby Properties** | Find properties within specific radius | ✅ Active |
-| **CORS Support** | Cross-origin resource sharing enabled | ✅ Enabled |
-| **Async Processing** | High-concurrency request handling with asyncio | ✅ Optimized |
-| **Error Handling** | Comprehensive error management and validation | ✅ Robust |
-| **Interactive Documentation** | Swagger UI + ReDoc endpoints | ✅ Built-in |
+    C --> F[Property Aggregator]
+    D --> F
+    F --> G[Bayut]
+    F --> H[Aqar]
+    F --> I[PropertyFinder]
+    F --> J[Wasalt]
+    F --> K[Other Platforms]
 
-### 🏙️ Supported Cities
+    E --> L[Broker Merger]
+    L --> M[Directory Sources]
+    L --> N[Listing Extraction]
+```
 
-**20 Major Cities Including:**
-- 🏛️ **Riyadh** (Largest market)
-- 🌊 **Jeddah** (Red Sea coast)
-- 📍 **Dammam** (Eastern Province)
-- 🕌 **Mecca** & **Medina**
-- 🏔️ **Abha**, **Taif**
-- ⛽ **Al Khobar**, **Dhahran**
-- 🏗️ **Al Jubail**, **Yanbu**
-- ✈️ **Tabuk**, **Buraidah**, **Hail**, **Khamis Mushait**, **Najran**, **Jazan**
-- 🌅 **Al Ahsa**, **Al Qatif**, **Al Ula**, + more...
+## Feature Highlights
 
-### 📊 Property Types & Platforms
+### Property Aggregation
 
-**Property Types:** Apartments, Villas, Houses, Land, Offices, Commercial Spaces
+- Multi-source property scraping from 13 platforms.
+- Filtering by location, rooms, price range, listing type, and area range.
+- Optional platform-level targeting per request.
+- District-aware filtering logic for focused local results.
 
-**13+ Supported Platforms:**
-1. 🏛️ **Bayut** - Primary marketplace (via Algolia API)
-2. 🔍 **Aqar** - Arabic platform with RSC streaming
-3. 🏘️ **PropertyFinder** - Major listing portal
-4. 🌐 **Wasalt** - Next.js based platform
-5. 🏠 **Sakani** - Government housing platform
-6. 🎯 **Haraj** - Classified marketplace
-7. 🛒 **OpenSooq** - Multi-category platform
-8. 🌍 **Expatriates** - Expat-focused listings
-9. 📱 **Mourjan** - Community marketplace
-10. 🏢 **Satel** - Commercial compounds
-11. 🔗 **Zaahib** - Property aggregator
-12. 📍 **Bezaat** - Real estate portal
-13. 🎁 **SaudiDeal** - Deal marketplace
+### Broker Intelligence
 
----
+- Live broker discovery over SSE.
+- Merges and de-duplicates contacts by phone normalization.
+- Combines directory and listing-level broker extraction.
+- Bayut district deep-scan support for higher broker recall.
 
-## 🛠️ Tech Stack
+### City And Location Intelligence
 
-### Backend Framework
-- **FastAPI** v0.111.0 - Modern, fast async web framework
-- **Uvicorn** v0.29.0 - ASGI web server
+- Dynamic city, area, and district hierarchy.
+- Dedicated endpoint to bootstrap location selectors quickly.
+- Saudi-market oriented city coverage.
 
-### Web Scraping & HTTP
-- **curl_cffi** - Advanced HTTP requests with browser fingerprinting
-- **BeautifulSoup4** v4.12.3 - HTML parsing and extraction
-- **HTTPX** v0.27.0 - Asynchronous HTTP client
-- **lxml** v5.2.1 - XML/HTML processing engine
+## Supported Platforms
 
-### Utilities & Configuration
-- **python-dotenv** v1.0.1 - Environment variable management
+### Property Platforms
 
-### Deployment & Infrastructure
-- Docker & Docker Compose
-- Cloud Platforms (AWS, Google Cloud, Azure, Heroku)
-- Virtual Private Servers (VPS)
-- Kubernetes orchestration
+| # | Platform | Category |
+|---:|---|---|
+| 1 | Bayut | Premium |
+| 2 | Aqar | Premium |
+| 3 | PropertyFinder | Premium |
+| 4 | Wasalt | Premium |
+| 5 | Sakani | Government |
+| 6 | Haraj | Classifieds |
+| 7 | OpenSooq | Classifieds |
+| 8 | Expatriates | Classifieds |
+| 9 | Mourjan | Classifieds |
+| 10 | Satel | Niche |
+| 11 | Zaahib | Niche |
+| 12 | Bezaat | Niche |
+| 13 | SaudiDeal | Niche |
 
----
+### Platform Reliability Note
 
-## 📦 Installation
+- Fully working and production-priority platforms: **Bayut, Aqar, PropertyFinder, Wasalt**.
+- Other platforms are integrated as additional coverage sources and are **best-effort**.
+- Due to frequent upstream site changes and anti-bot behavior, non-premium platform stability is **not guaranteed**.
 
-### Prerequisites
+### Broker Discovery Sources
 
-- **Python 3.8+** or **Python 3.11+** (Recommended)
-- **pip** (Python package manager)
-- **Git** (for cloning the repository)
-- **Virtual Environment** (recommended)
+- Bayut Algolia index
+- Bayut agents directory
+- Bayut companies directory
+- Bayut district deep scan
+- PropertyFinder broker directories
+- Wasalt broker directories
+- Aqar broker search
+- Haraj contact extraction
+- Listing-based broker extraction from live property pages
 
-### Step 1: Clone Repository
+## API Reference
+
+Base URL (local): `http://localhost:8000`
+
+### `GET /api/platforms`
+
+Returns all available property scraping platforms with metadata.
+
+### `GET /api/locations`
+
+Location hierarchy resolver:
+
+- No query: returns cities
+- `?city=riyadh`: returns areas
+- `?area_slug=/riyadh/north-riyadh`: returns districts
+
+### `GET /api/properties`
+
+Batch aggregation endpoint.
+
+Query parameters:
+
+- `location` (required)
+- `min_price`, `max_price`
+- `rooms`
+- `property_type` (default: `apartment`)
+- `listing_type` (default: `sale`)
+- `platforms` (comma-separated)
+- `min_area`, `max_area`
+
+Response shape:
+
+- `status`
+- `count`
+- `listings[]`
+
+### Streaming Endpoints
+
+#### `GET /api/stream`
+
+Live property streaming endpoint (SSE).
+
+Query parameters:
+
+- `location` (required)
+- `min_price`, `max_price`, `rooms`
+- `property_type` (single or comma-separated)
+- `listing_type`
+- `platforms`
+- `area_slug`, `district_slug`
+- `min_area`, `max_area`
+
+SSE statuses:
+
+- `scanning`
+- `result`
+- `platform_done`
+- `error`
+- `complete`
+
+#### `GET /api/brokers`
+
+Live broker streaming endpoint (SSE).
+
+Query parameters:
+
+- `location` (required)
+- `platforms` (accepted)
+
+### Utility Endpoints
+
+- `GET /api/cities`
+- `GET /health`
+
+## Quick Start
+
+### 1. Clone And Install
 
 ```bash
-# Clone the repository
 git clone https://github.com/DeveloperSarim/Properties-Scraper-Api.git
 cd Properties-Scraper-Api
 
-# Or use HTTPS if SSH is not configured
-git clone https://github.com/DeveloperSarim/Properties-Scraper-Api.git
-```
-
-### Step 2: Create Virtual Environment
-
-```bash
-# Create virtual environment
 python -m venv venv
-
-# Activate virtual environment
-# On Linux/macOS
 source venv/bin/activate
 
-# On Windows
-venv\Scripts\activate
-```
-
-### Step 3: Install Dependencies
-
-```bash
-# Upgrade pip
 pip install --upgrade pip
-
-# Install all required packages
 pip install -r requirements.txt
 ```
 
-### Step 4: Verify Installation
+### 2. Run Server
 
 ```bash
-# Check if FastAPI is installed correctly
-python -c "import fastapi; print(f'FastAPI v{fastapi.__version__}')"
-```
-
----
-
-## ⚙️ Configuration
-
-### Environment Variables
-
-Create a `.env` file in the project root:
-
-```env
-# FastAPI Configuration
-APP_NAME=Saudi Property Scraper API
-APP_VERSION=2.0.0
-DEBUG=True
-
-# Server Configuration
-HOST=0.0.0.0
-PORT=8000
-
-# Scraping Configuration
-TIMEOUT=30
-MAX_RETRIES=3
-USER_AGENT=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
-
-# API Configuration
-CORS_ORIGINS=["*"]
-CORS_ALLOW_CREDENTIALS=True
-CORS_ALLOW_METHODS=["*"]
-CORS_ALLOW_HEADERS=["*"]
-
-# Logging
-LOG_LEVEL=INFO
-```
-
-### Load Environment Variables
-
-```python
-from dotenv import load_dotenv
-import os
-
-load_dotenv()
-
-DEBUG = os.getenv("DEBUG", "True")
-PORT = int(os.getenv("PORT", 8000))
-```
-
----
-
-## 🚀 Quick Start
-
-### Running the API Server
-
-```bash
-# Activate virtual environment (if not already activated)
-source venv/bin/activate  # Linux/macOS
-# or
-venv\Scripts\activate     # Windows
-
-# Run the development server
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-**Expected Output:**
-```
-INFO:     Uvicorn running on http://0.0.0.0:8000
-INFO:     Application startup complete
-```
+### 3. Open API Docs
 
-### Access the API
+- Swagger UI: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
 
-- 🌐 **API Endpoint**: http://localhost:8000
-- 📚 **Interactive Docs (Swagger UI)**: http://localhost:8000/docs
-- 🔄 **Alternative Docs (ReDoc)**: http://localhost:8000/redoc
-- 📋 **OpenAPI Schema**: http://localhost:8000/openapi.json
+## Request Examples
 
-### Test the API
+### Batch Properties
 
 ```bash
-# Test Properties Endpoint (using curl)
-curl "http://localhost:8000/api/properties?city=riyadh&limit=10"
-
-# Test Brokers Endpoint
-curl "http://localhost:8000/api/brokers?city=riyadh&limit=10"
-
-# Using Python
-import httpx
-import asyncio
-
-async def test_api():
-    async with httpx.AsyncClient() as client:
-        # Test properties
-        response = await client.get("http://localhost:8000/api/properties", 
-                                   params={"city": "riyadh", "limit": 5})
-        print("Properties:", response.json())
-        
-        # Test brokers
-        response = await client.get("http://localhost:8000/api/brokers",
-                                   params={"city": "riyadh", "limit": 5})
-        print("Brokers:", response.json())
-
-asyncio.run(test_api())
+curl "http://localhost:8000/api/properties?location=riyadh&property_type=apartment&listing_type=sale&min_price=300000&max_price=1500000"
 ```
 
----
-
-## 📚 API Documentation
-
-### Base URL
-```
-http://localhost:8000
-```
-
-### API Modules
-
-The API is organized into two main modules:
-
-#### 1. **Property Module** (`/property_scraper.py`)
-Real estate property search and listings
-
-#### 2. **Broker Module** (`/broker_scraper.py`)  
-Real estate agents and brokers search
-
-### Available Endpoints
-
-#### Property Search Endpoints
-
-##### 1. Search Properties by City
-
-**Endpoint:** `GET /api/properties`
-
-**Query Parameters:**
-
-| Parameter | Type | Description | Example |
-|-----------|------|-------------|---------|
-| `city` | string | City name (case-insensitive) | `riyadh`, `jeddah` |
-| `limit` | integer | Number of results to return | `10`, `50` |
-| `offset` | integer | Pagination offset | `0`, `10` |
-| `district` | string (optional) | Specific district within city | `Al Malaz`, `Al Olaya` |
-| `price_min` | integer (optional) | Minimum price in SAR | `100000` |
-| `price_max` | integer (optional) | Maximum price in SAR | `1000000` |
-| `property_type` | string (optional) | Type of property | `apartment`, `villa`, `house` |
-
-**Example Requests:**
+### Stream Properties (SSE)
 
 ```bash
-# Search properties in Riyadh (first 10 results)
-curl "http://localhost:8000/api/properties?city=riyadh&limit=10"
-
-# Search in specific district
-curl "http://localhost:8000/api/properties?city=riyadh&district=Al%20Malaz&limit=20"
-
-# With pagination
-curl "http://localhost:8000/api/properties?city=jeddah&limit=25&offset=0"
-
-# Price range filter
-curl "http://localhost:8000/api/properties?city=riyadh&price_min=500000&price_max=2000000"
+curl -N "http://localhost:8000/api/stream?location=al%20olaya,riyadh&property_type=apartment,villa&listing_type=rent&platforms=bayut,aqar,propertyfinder"
 ```
 
-**Response Format (JSON):**
-
-```json
-{
-  "status": "success",
-  "city": "riyadh",
-  "total_results": 1250,
-  "returned": 10,
-  "data": [
-    {
-      "id": "prop_12345",
-      "title": "Modern Villa in Al Malaz",
-      "city": "Riyadh",
-      "district": "Al Malaz",
-      "price": 1500000,
-      "currency": "SAR",
-      "property_type": "Villa",
-      "bedrooms": 4,
-      "bathrooms": 3,
-      "area": 250,
-      "area_unit": "sqm",
-      "description": "Spacious modern villa...",
-      "images": ["url1", "url2"],
-      "location": {
-        "latitude": 24.7136,
-        "longitude": 46.6753
-      },
-      "posted_date": "2024-04-15T10:30:00Z",
-      "source_url": "https://bayut.com/...",
-      "source": "Bayut"
-    }
-  ]
-}
-```
-
-##### 2. Search by District
-
-**Endpoint:** `GET /api/properties/district/{city}/{district}`
+### Stream Brokers (SSE)
 
 ```bash
-curl "http://localhost:8000/api/properties/district/riyadh/Al%20Malaz"
+curl -N "http://localhost:8000/api/brokers?location=riyadh"
 ```
 
-##### 3. Nearby Properties
-
-**Endpoint:** `GET /api/properties/nearby`
-
-**Query Parameters:**
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `latitude` | float | Latitude coordinate |
-| `longitude` | float | Longitude coordinate |
-| `radius_km` | float | Search radius in kilometers |
-| `limit` | integer | Maximum results |
+### Location APIs
 
 ```bash
-curl "http://localhost:8000/api/properties/nearby?latitude=24.7136&longitude=46.6753&radius_km=5&limit=20"
+curl "http://localhost:8000/api/locations"
+curl "http://localhost:8000/api/locations?city=riyadh"
+curl "http://localhost:8000/api/locations?area_slug=/riyadh/north-riyadh"
 ```
 
-##### 4. Stream Properties (SSE - Streaming Response)
+## Tech Stack And Logos
 
-**Endpoint:** `GET /stream/properties`
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org)
+[![Uvicorn](https://img.shields.io/badge/Uvicorn-ASGI%20Server-4051B5?style=for-the-badge&logo=gunicorn&logoColor=white)](https://www.uvicorn.org)
+[![Vercel](https://img.shields.io/badge/Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://vercel.com)
+[![HTML5](https://img.shields.io/badge/HTML5-E34F26?style=for-the-badge&logo=html5&logoColor=white)](https://developer.mozilla.org/en-US/docs/Web/HTML)
 
-Real-time streaming of properties as they're being scraped using Server-Sent Events.
+- FastAPI
+- Uvicorn
+- curl_cffi
+- HTTPX
+- BeautifulSoup4
+- lxml
+- python-dotenv
 
-```bash
-curl "http://localhost:8000/stream/properties?city=riyadh&limit=100"
-```
+## Deployment
 
-#### Broker Search Endpoints
+Vercel deployment is preconfigured using `vercel.json`:
 
-##### 1. Search Brokers/Agents by City
+- Build source: `main.py`
+- Route target: `main.py` catch-all
 
-**Endpoint:** `GET /api/brokers`
+## Performance Notes
 
-**Query Parameters:**
+- Optimized for low time-to-first-result through SSE.
+- Throughput depends on upstream source latency and anti-bot mechanisms.
+- For best UX, consume streaming endpoints and append results progressively.
 
-| Parameter | Type | Description | Example |
-|-----------|------|-------------|---------|
-| `city` | string | City name (case-insensitive) | `riyadh`, `jeddah` |
-| `limit` | integer | Number of results to return | `10`, `50` |
+## Disclaimer
 
-**Example Requests:**
+Use this project responsibly and in compliance with each source platform policy and local regulations.
 
-```bash
-# Search brokers in Riyadh
-curl "http://localhost:8000/api/brokers?city=riyadh&limit=20"
+## License
 
-# Search brokers in Jeddah
-curl "http://localhost:8000/api/brokers?city=jeddah&limit=15"
-```
-
-##### 2. Stream Brokers (SSE - Streaming Response)
-
-**Endpoint:** `GET /stream/brokers`
-
-Real-time streaming of broker data as they're being scraped using Server-Sent Events.
-
-```bash
-curl "http://localhost:8000/stream/brokers?city=riyadh&limit=50"
-```
-
-### Error Responses
-
-```json
-{
-  "status": "error",
-  "error_code": "INVALID_CITY",
-  "message": "City 'unknown' is not supported",
-  "supported_cities": ["riyadh", "jeddah", ...]
-}
-```
-
-**Common Error Codes:**
-- `400` - Bad Request (invalid parameters)
-- `404` - City/Resource Not Found
-- `429` - Rate Limited
-- `500` - Internal Server Error
-
----
-
-## 🌐 Deployment
-
-### 📦 Option 1: Docker Deployment (Recommended)
-
-#### Step 1: Create Dockerfile
-
-```dockerfile
-FROM python:3.11-slim
-
-WORKDIR /app
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy requirements
-COPY requirements.txt .
-
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy application code
-COPY . .
-
-# Expose port
-EXPOSE 8000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import httpx; httpx.get('http://localhost:8000/health')"
-
-# Run application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-```
-
-#### Step 2: Create docker-compose.yml
-
-```yaml
-version: '3.8'
-
-services:
-  api:
-    build: .
-    ports:
-      - "8000:8000"
-    environment:
-      - DEBUG=False
-      - LOG_LEVEL=INFO
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    volumes:
-      - ./logs:/app/logs
-```
-
-#### Step 3: Build and Run
-
-```bash
-# Build Docker image
-docker build -t properties-scraper-api:latest .
-
-# Run with Docker
-docker run -d \
-  --name properties-api \
-  -p 8000:8000 \
-  properties-scraper-api:latest
-
-# Or use Docker Compose
-docker-compose up -d
-
-# View logs
-docker logs -f properties-api
-```
-
----
-
-### ☁️ Option 2: Heroku Deployment
-
-#### Step 1: Create Procfile
-
-```
-web: uvicorn main:app --host 0.0.0.0 --port $PORT
-```
-
-#### Step 2: Create runtime.txt
-
-```
-python-3.11.9
-```
-
-#### Step 3: Deploy to Heroku
-
-```bash
-# Login to Heroku
-heroku login
-
-# Create Heroku app
-heroku create your-app-name
-
-# Add buildpack
-heroku buildpacks:add heroku/python
-
-# Deploy
-git push heroku main
-
-# View logs
-heroku logs --tail
-```
-
----
-
-### ☁️ Option 3: AWS EC2 Deployment
-
-#### Step 1: Launch EC2 Instance
-
-```bash
-# SSH into your EC2 instance
-ssh -i your-key.pem ubuntu@your-ec2-ip.compute.amazonaws.com
-
-# Update system
-sudo apt update && sudo apt upgrade -y
-
-# Install Python and pip
-sudo apt install -y python3.11 python3.11-venv python3-pip
-
-# Install Git
-sudo apt install -y git
-```
-
-#### Step 2: Clone and Setup
-
-```bash
-# Clone repository
-git clone https://github.com/DeveloperSarim/Properties-Scraper-Api.git
-cd Properties-Scraper-Api
-
-# Create virtual environment
-python3.11 -m venv venv
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-#### Step 3: Setup Systemd Service
-
-```bash
-# Create service file
-sudo nano /etc/systemd/system/properties-api.service
-```
-
-**Content:**
-
-```ini
-[Unit]
-Description=Saudi Property Scraper API
-After=network.target
-
-[Service]
-Type=notify
-User=ubuntu
-WorkingDirectory=/home/ubuntu/Properties-Scraper-Api
-Environment="PATH=/home/ubuntu/Properties-Scraper-Api/venv/bin"
-ExecStart=/home/ubuntu/Properties-Scraper-Api/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
-Restart=on-failure
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-# Enable and start service
-sudo systemctl daemon-reload
-sudo systemctl enable properties-api
-sudo systemctl start properties-api
-
-# Check status
-sudo systemctl status properties-api
-```
-
----
-
-### ☁️ Option 4: Google Cloud Platform (GCP)
-
-#### Step 1: Create Cloud Run Service
-
-```bash
-# Authenticate with GCP
-gcloud auth login
-
-# Create project if needed
-gcloud projects create properties-scraper-api
-
-# Deploy to Cloud Run
-gcloud run deploy properties-api \
-  --source . \
-  --platform managed \
-  --region us-central1 \
-  --allow-unauthenticated
-```
-
----
-
-### ☁️ Option 5: DigitalOcean App Platform
-
-```bash
-# Create app.yaml
-cat > app.yaml <<EOF
-name: properties-scraper-api
-services:
-- name: api
-  github:
-    repo: your-username/Properties-Scraper-Api
-    branch: main
-  build_command: pip install -r requirements.txt
-  run_command: uvicorn main:app --host 0.0.0.0 --port 8080
-  envs:
-  - key: DEBUG
-    value: "False"
-EOF
-
-# Deploy
-doctl apps create --spec app.yaml
-```
-
----
-
-### 🔒 Production Configuration
-
-#### SSL/HTTPS with Nginx
-
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name api.example.com;
-
-    ssl_certificate /etc/letsencrypt/live/api.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/api.example.com/privkey.pem;
-
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-#### Enable SSL Certificate with Certbot
-
-```bash
-sudo apt install -y certbot python3-certbot-nginx
-sudo certbot certonly --nginx -d api.example.com
-```
-
----
-
-## 👨‍💻 Development Guide
-
-### Project Structure
-
-```
-Properties-Scraper-Api/
-├── main.py                    # FastAPI app entry point (CORS setup, router registration)
-├── property_scraper.py        # Property endpoints and platform-specific scrapers
-├── broker_scraper.py          # Broker/agent endpoints with SSE streaming
-├── shared.py                  # Shared utilities, constants, and helper functions
-├── requirements.txt           # Python dependencies
-├── .env                       # Environment variables (create this)
-├── .gitignore                 # Git ignore file
-├── README.md                  # This file
-├── Dockerfile                 # Docker configuration
-├── docker-compose.yml         # Docker Compose configuration
-├── logs/                      # Application logs
-├── venv/                      # Virtual environment
-└── docs/                      # Documentation files
-```
-
-### Architecture Overview
-
-The API follows a **modular router-based architecture** for clean separation of concerns:
-
-#### **Core Modules**
-
-1. **main.py** - Application Entry Point
-   - Initializes FastAPI application
-   - Configures CORS middleware
-   - Registers property and broker routers
-   - Serves as the single point of app setup
-
-2. **property_scraper.py** - Property Endpoints
-   - `/api/properties` - Search properties with filters
-   - `/api/properties/nearby` - Find nearby properties
-   - `/stream/properties` - Stream properties with SSE
-   - Platform-specific scrapers (Bayut, Aqar, PropertyFinder, Wasalt, etc.)
-   - Property data extraction and normalization
-
-3. **broker_scraper.py** - Broker Endpoints
-   - `/api/brokers` - Search real estate agents/brokers
-   - `/stream/brokers` - Stream broker data with SSE
-   - Integrates with property scrapers for broker information
-   - City-specific broker slugs and routing
-
-4. **shared.py** - Shared Utilities
-   - Bayut Algolia API configuration
-   - HTTP headers for different request types
-   - City coordinates and district data
-   - Helper functions (parsing, validation, distance calculation)
-   - Streaming response utilities (SSE)
-   - Common constants and configurations
-
-#### **Data Flow**
-
-```
-User Request
-    ↓
-FastAPI Router (property_scraper.py or broker_scraper.py)
-    ↓
-Platform-Specific Scraper
-    ↓
-HTTP Request (curl_cffi / httpx)
-    ↓
-Extract Data (BeautifulSoup / JSON parsing)
-    ↓
-Normalize & Format (shared.py utilities)
-    ↓
-Stream/Return Response (StreamingResponse or JSON)
-```
-
-### Running in Development Mode
-
-```bash
-# With auto-reload and debug mode
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
-
-# With detailed logging
-uvicorn main:app --reload --log-level debug
-```
-
-### Code Style & Linting
-
-```bash
-# Install development dependencies
-pip install black flake8 mypy pytest
-
-# Format code
-black main.py
-
-# Lint code
-flake8 main.py
-
-# Type checking
-mypy main.py
-```
-
-### Testing
-
-```bash
-# Install pytest
-pip install pytest pytest-asyncio httpx
-
-# Create test_main.py
-# Run tests
-pytest -v
-
-# With coverage
-pip install pytest-cov
-pytest --cov=main test_main.py
-```
-
----
-
-## 📖 Examples
-
-### Example 1: Search Properties in Riyadh
-
-```python
-import httpx
-import asyncio
-
-async def search_riyadh():
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            "http://localhost:8000/api/properties",
-            params={
-                "city": "riyadh",
-                "limit": 20
-            }
-        )
-        properties = response.json()
-        
-        for prop in properties['data']:
-            print(f"Title: {prop['title']}")
-            print(f"Price: {prop['price']:,} SAR")
-            print(f"Location: {prop['district']}, {prop['city']}")
-            print("---")
-
-asyncio.run(search_riyadh())
-```
-
-### Example 2: Search Properties with Price Filter
-
-```python
-import httpx
-import asyncio
-
-async def search_with_price_filter():
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            "http://localhost:8000/api/properties",
-            params={
-                "city": "jeddah",
-                "price_min": 500000,
-                "price_max": 2000000,
-                "limit": 50
-            }
-        )
-        
-        data = response.json()
-        print(f"Found {data['total_results']} properties")
-
-asyncio.run(search_with_price_filter())
-```
-
-### Example 3: Stream Properties in Real-time
-
-```python
-import httpx
-
-def stream_properties():
-    with httpx.stream(
-        "GET",
-        "http://localhost:8000/stream/properties",
-        params={"city": "riyadh", "limit": 100}
-    ) as response:
-        for line in response.iter_lines():
-            if line:
-                print(f"Property: {line}")
-
-stream_properties()
-```
-
-### Example 4: Find Nearby Properties
-
-```python
-import httpx
-import asyncio
-
-async def find_nearby():
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            "http://localhost:8000/api/properties/nearby",
-            params={
-                "latitude": 24.7136,
-                "longitude": 46.6753,
-                "radius_km": 5,
-                "limit": 30
-            }
-        )
-        
-        nearby = response.json()
-        for prop in nearby['data']:
-            print(f"{prop['title']} - {prop['price']:,} SAR")
-
-asyncio.run(find_nearby())
-```
-
-### Example 5: Search Brokers/Agents
-
-```python
-import httpx
-import asyncio
-
-async def search_brokers():
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            "http://localhost:8000/api/brokers",
-            params={
-                "city": "riyadh",
-                "limit": 20
-            }
-        )
-        
-        brokers = response.json()
-        for broker in brokers['data']:
-            print(f"Agent: {broker['name']}")
-            print(f"Phone: {broker['phone']}")
-            print(f"City: {broker['city']}")
-            print("---")
-
-asyncio.run(search_brokers())
-```
-
-### Example 6: Stream Brokers in Real-time
-
-```python
-import httpx
-
-def stream_brokers():
-    with httpx.stream(
-        "GET",
-        "http://localhost:8000/stream/brokers",
-        params={"city": "jeddah", "limit": 50}
-    ) as response:
-        for line in response.iter_lines():
-            if line:
-                print(f"Broker: {line}")
-
-stream_brokers()
-```
-
----
-
-## 🤝 Contributing
-
-We welcome contributions! Please follow these guidelines:
-
-### Step 1: Fork the Repository
-
-```bash
-# Click "Fork" on GitHub
-git clone https://github.com/YOUR_USERNAME/Properties-Scraper-Api.git
-cd Properties-Scraper-Api
-```
-
-### Step 2: Create Feature Branch
-
-```bash
-git checkout -b feature/amazing-feature
-```
-
-### Step 3: Make Changes
-
-```bash
-# Make your improvements...
-git add .
-git commit -m "Add amazing feature"
-```
-
-### Step 4: Push and Create Pull Request
-
-```bash
-git push origin feature/amazing-feature
-# Create Pull Request on GitHub
-```
-
-### Contribution Guidelines
-
-- ✅ Write clear commit messages
-- ✅ Add tests for new features
-- ✅ Update documentation
-- ✅ Follow PEP 8 style guide
-- ✅ Add comments for complex logic
-- ✅ Test thoroughly before submitting
-
----
-
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-```
-MIT License
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software")...
-```
-
----
-
-## 💬 Support
-
-### Getting Help
-
-- 📖 **Documentation**: Check [docs/](docs/) folder
-- 🐛 **Bug Reports**: [Open an issue](https://github.com/DeveloperSarim/Properties-Scraper-Api/issues)
-- 💡 **Feature Requests**: [Discussions](https://github.com/DeveloperSarim/Properties-Scraper-Api/discussions)
-- 📧 **Email**: sarim.yaseen@aixsolutions.net
-
-### Troubleshooting
-
-#### ImportError: No module named 'fastapi'
-
-```bash
-# Ensure virtual environment is activated and dependencies installed
-source venv/bin/activate
-pip install -r requirements.txt
-```
-
-#### Module Import Issues
-
-If you see `ModuleNotFoundError: No module named 'shared'`, `'property_scraper'`, or `'broker_scraper'`:
-
-```bash
-# Ensure you're running the server from the project root directory
-cd /path/to/Properties-Scraper-Api
-
-# Check that all Python files are present
-ls -la *.py  # Should show: main.py, property_scraper.py, broker_scraper.py, shared.py
-
-# Reinstall dependencies
-pip install -r requirements.txt
-
-# Run from project root
-uvicorn main:app --reload
-```
-
-#### Connection Error on localhost:8000
-
-```bash
-# Check if port is in use
-lsof -i :8000
-
-# Use different port
-uvicorn main:app --port 8001
-```
-
-#### Timeout Issues During Scraping
-
-```env
-# Increase timeout in .env
-TIMEOUT=60
-```
-
-#### ModuleNotFoundError in broker_scraper.py
-
-If you see errors importing from `property_scraper`, ensure the import is correct:
-
-```python
-# broker_scraper.py should import like this:
-from property_scraper import (
-    BayutScraper, PropertyFinderScraper, WasaltScraper, AqarScraper,
-)
-```
-
----
-
-## 🚀 Performance Tips
-
-### 1. Enable Caching
-
-```python
-from fastapi_cache2 import FastAPICache2
-from fastapi_cache2.backends.redis import RedisBackend
-```
-
-### 2. Use Database for Results
-
-Consider adding MongoDB or PostgreSQL for caching results.
-
-### 3. Rate Limiting
-
-```bash
-pip install slowapi
-```
-
-### 4. Load Balancing
-
-Use Nginx or HAProxy for load balancing across multiple instances.
-
----
-
-## 📊 Analytics & Monitoring
-
-### Health Check Endpoint
-
-Add to main.py:
-
-```python
-@app.get("/health")
-async def health_check():
-    return {
-        "status": "healthy",
-        "timestamp": datetime.now(),
-        "version": "2.0.0"
-    }
-```
-
-### Monitoring with PM2
-
-```bash
-npm install -g pm2
-
-# Create ecosystem.config.js
-cat > ecosystem.config.js <<EOF
-module.exports = {
-  apps: [{
-    name: "properties-api",
-    script: "uvicorn",
-    args: "main:app --host 0.0.0.0 --port 8000",
-    instances: 4,
-    exec_mode: "cluster"
-  }]
-}
-EOF
-
-pm2 start ecosystem.config.js
-```
-
----
-
-## 🎯 Roadmap
-
-- [x] Multi-platform scraping support
-- [x] City-based search
-- [x] Streaming API responses
-- [ ] Advanced filtering options
-- [ ] Machine learning price prediction
-- [ ] Mobile app integration
-- [ ] Real-time notifications
-- [ ] Database integration
-
----
-
-## 🙏 Acknowledgments
-
-- **FastAPI** - Modern web framework
-- **Bayut.sa** - Real estate data source
-- **BeautifulSoup** - HTML parsing
-- **curl_cffi** - Advanced HTTP requests
-- Open-source community
-
----
-
-## 📞 Contact & Social
-
-- 🐙 **GitHub**: [@DeveloperSarim](https://github.com/DeveloperSarim)
-- 📧 **Email**: sarim.yaseen@aixsolutions.net
-- 🔗 **LinkedIn**: [Your LinkedIn Profile]
-- 🐦 **Twitter**: [@SarimTools]
-
----
-
-<div align="center">
-
-**Made with ❤️ by DeveloperSarim**
-
-⭐ If you find this project useful, please star it on [GitHub](https://github.com/DeveloperSarim/Properties-Scraper-Api)
-
-[Back to Top](#-saudi-property-scraper-api)
-
-</div>
+MIT
